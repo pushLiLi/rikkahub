@@ -133,10 +133,12 @@ class SettingsStore internal constructor(
 
         // 提供商
         val PROVIDERS = stringPreferencesKey("providers")
+        val HIDDEN_PROVIDERS = stringPreferencesKey("hidden_providers")
 
         // 助手
         val SELECT_ASSISTANT = stringPreferencesKey("select_assistant")
         val ASSISTANTS = stringPreferencesKey("assistants")
+        val HIDDEN_ASSISTANTS = stringPreferencesKey("hidden_assistants")
         val ASSISTANT_TAGS = stringPreferencesKey("assistant_tags")
 
         // 搜索

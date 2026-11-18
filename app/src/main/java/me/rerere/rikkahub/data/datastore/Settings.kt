@@ -60,7 +60,11 @@ data class Settings(
     val ocrPrompt: String = DEFAULT_OCR_PROMPT,
     val assistantId: Uuid = DEFAULT_ASSISTANT_ID,
     val providers: List<ProviderSetting> = DEFAULT_PROVIDERS,
+    // 用户删除过的内置提供商 id，规整时依据它不再把这些内置提供商补回来
+    val hiddenProviderIds: List<Uuid> = emptyList(),
     val assistants: List<Assistant> = DEFAULT_ASSISTANTS,
+    // 用户删除过的默认助手 id，规整时依据它不再把这些默认助手补回来
+    val hiddenAssistantIds: List<Uuid> = emptyList(),
     val assistantTags: List<Tag> = emptyList(),
     val searchServices: List<SearchServiceOptions> = listOf(SearchServiceOptions.DEFAULT),
     val searchCommonOptions: SearchCommonOptions = SearchCommonOptions(),

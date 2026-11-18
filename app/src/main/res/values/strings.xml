@@ -64,6 +64,8 @@
   <string name="assistant_page_delete">Delete</string>
   <string name="assistant_page_delete_body">Delete Body</string>
   <string name="assistant_page_delete_dialog_text">Are you sure you want to delete this assistant? This action cannot be undone.</string>
+  <string name="assistant_page_restore_built_in">Restore default assistants</string>
+  <string name="assistant_page_restore_built_in_dialog">This will re-add all default assistants you have deleted. Continue?</string>
   <string name="assistant_page_delete_header">Delete Header</string>
   <string name="assistant_page_enter_image_url">Enter Image URL</string>
   <string name="assistant_page_global_memory">Global Memory</string>
@@ -957,6 +959,9 @@
   <string name="setting_provider_page_import_dialog_title">Import Provider Configuration</string>
   <string name="setting_provider_page_import_service_account_json">Import Service Account JSON</string>
   <string name="setting_provider_page_import_success">Import successful</string>
+  <string name="setting_provider_page_restore_built_in">Restore built-in providers</string>
+  <string name="setting_provider_page_restore_built_in_success">Built-in providers restored</string>
+  <string name="setting_provider_page_restore_built_in_dialog">This will re-add all built-in providers you have deleted. Continue?</string>
   <string name="setting_provider_page_input_modality">Input Modality</string>
   <string name="setting_provider_page_location">Location (e.g. us-central1)</string>
   <string name="setting_provider_page_model_count">%d models</string>

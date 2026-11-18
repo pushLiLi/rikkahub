@@ -79,6 +79,7 @@ import me.rerere.hugeicons.stroke.Image02
 import me.rerere.hugeicons.stroke.Search01
 import me.rerere.hugeicons.stroke.Sparkles
 import me.rerere.hugeicons.stroke.Tick02
+import me.rerere.hugeicons.stroke.Undo
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.components.ui.QRCodeScannerDialog
 import me.rerere.rikkahub.Screen
@@ -109,6 +110,10 @@ fun SettingProviderPage(vm: SettingVM = koinViewModel()) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     var searchQuery by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<ProviderSetting?>(null) }
+    // 恢复内置服务商的确认框
+    var showRestoreDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val toaster = LocalToaster.current
     val lazyListState = rememberLazyListState()
     val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
         val newProviders = settings.providers.toMutableList().apply {
@@ -145,7 +150,11 @@ fun SettingProviderPage(vm: SettingVM = koinViewModel()) {
         vm.updateSettings { latest ->
             // 连点时第二次写入已经能看到第一次的结果，避免出现重复 id
             if (latest.providers.any { it.id == provider.id }) return@updateSettings latest
-            latest.copy(providers = listOf(provider) + latest.providers)
+            latest.copy(
+                providers = listOf(provider) + latest.providers,
+                // 重新添加被删除的内置提供商时解除隐藏
+                hiddenProviderIds = latest.hiddenProviderIds - provider.id,
+            )
         }
     }
 
@@ -168,7 +177,10 @@ fun SettingProviderPage(vm: SettingVM = koinViewModel()) {
                     ImportProviderButton {
                         addProvider(it.copyProvider(Uuid.random()))
                     }
-                    AddButton { provider ->
+                    AddButton(
+                        showRestore = settings.hiddenProviderIds.isNotEmpty(),
+                        onRestore = { showRestoreDialog = true },
+                    ) { provider ->
                         addProvider(provider)
                         navController.navigate(Screen.SettingProviderDetail(providerId = provider.id.toString()))
                     }
@@ -254,13 +266,38 @@ fun SettingProviderPage(vm: SettingVM = koinViewModel()) {
         dismissText = stringResource(R.string.cancel),
         onConfirm = {
             deleteTarget?.let { target ->
-                vm.updateSettings { latest -> latest.copy(providers = latest.providers.filter { it.id != target.id }) }
+                vm.updateSettings { latest ->
+                    latest.copy(
+                        providers = latest.providers.filter { it.id != target.id },
+                        // 删除的内置提供商记下 id，规整时才不会补回来
+                        hiddenProviderIds = (latest.hiddenProviderIds + target.id).distinct(),
+                    )
+                }
             }
             deleteTarget = null
         },
         onDismiss = { deleteTarget = null },
     ) {
         Text(stringResource(R.string.setting_provider_page_delete_dialog_text))
+    }
+
+    // 恢复入口放在“添加提供商”弹窗里并带确认框，避免被误当成刷新列表的按钮
+    RikkaConfirmDialog(
+        show = showRestoreDialog,
+        title = stringResource(R.string.setting_provider_page_restore_built_in),
+        confirmText = stringResource(R.string.confirm),
+        dismissText = stringResource(R.string.cancel),
+        onConfirm = {
+            showRestoreDialog = false
+            vm.updateSettings { it.copy(hiddenProviderIds = emptyList()) }
+            toaster.show(
+                context.getString(R.string.setting_provider_page_restore_built_in_success),
+                type = ToastType.Success
+            )
+        },
+        onDismiss = { showRestoreDialog = false },
+    ) {
+        Text(stringResource(R.string.setting_provider_page_restore_built_in_dialog))
     }
 }
 
@@ -571,9 +608,13 @@ private fun handleImageQRCode(
 }
 
 
-// 新建时只选类型，其余配置到详情页里填
+// 新建时只选类型，其余配置到详情页里填；删除过内置提供商时末尾提供恢复入口
 @Composable
-private fun AddButton(onAdd: (ProviderSetting) -> Unit) {
+private fun AddButton(
+    showRestore: Boolean,
+    onRestore: () -> Unit,
+    onAdd: (ProviderSetting) -> Unit,
+) {
     var showSheet by remember { mutableStateOf(false) }
     val templates = remember {
         listOf(
@@ -640,6 +681,32 @@ private fun AddButton(onAdd: (ProviderSetting) -> Unit) {
                                 )
                                 Icon(HugeIcons.ArrowRight01, contentDescription = null)
                             }
+                        }
+                    }
+                }
+
+                if (showRestore) {
+                    Surface(
+                        onClick = {
+                            showSheet = false
+                            onRestore()
+                        },
+                        shape = cardGroupItemShape(0, 1),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(HugeIcons.Undo, contentDescription = null)
+                            Text(
+                                text = stringResource(R.string.setting_provider_page_restore_built_in),
+                                style = MaterialTheme.typography.titleMediumEmphasized,
+                                modifier = Modifier.weight(1f),
+                            )
                         }
                     }
                 }
@@ -729,7 +796,6 @@ private fun ProviderItem(
                         text = stringResource(R.string.delete),
                         icon = HugeIcons.Delete01,
                         destructive = true,
-                        enabled = !provider.builtIn,
                         onClick = onDelete,
                     ),
                 )

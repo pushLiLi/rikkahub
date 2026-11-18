@@ -200,7 +200,11 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
     }
     val onDelete = {
         vm.updateSettings { latest ->
-            latest.copy(providers = latest.providers.filter { it.id != provider.id })
+            latest.copy(
+                providers = latest.providers.filter { it.id != provider.id },
+                // 删除的内置提供商记下 id，规整时才不会补回来
+                hiddenProviderIds = (latest.hiddenProviderIds + provider.id).distinct(),
+            )
         }
         navController.popBackStack()
     }
@@ -369,14 +373,12 @@ private fun SettingProviderConfigPage(
                         Icon(HugeIcons.Connect, null)
                     }
 
-                    if (!internalProvider.builtIn) {
-                        IconButton(
-                            onClick = {
-                                showDeleteDialog = true
-                            },
-                        ) {
-                            Icon(HugeIcons.Delete01, stringResource(R.string.delete))
-                        }
+                    IconButton(
+                        onClick = {
+                            showDeleteDialog = true
+                        },
+                    ) {
+                        Icon(HugeIcons.Delete01, stringResource(R.string.delete))
                     }
                 },
             ) {

@@ -64,6 +64,8 @@
   <string name="assistant_page_delete">刪除</string>
   <string name="assistant_page_delete_body">刪除 Body</string>
   <string name="assistant_page_delete_dialog_text">確定要刪除這個助手嗎？此操作無法撤銷。</string>
+  <string name="assistant_page_restore_built_in">恢復預設助手</string>
+  <string name="assistant_page_restore_built_in_dialog">將重新加入所有已刪除的預設助手，是否繼續？</string>
   <string name="assistant_page_delete_header">刪除 Header</string>
   <string name="assistant_page_enter_image_url">輸入圖片URL</string>
   <string name="assistant_page_global_memory">全域記憶體</string>
@@ -879,6 +881,9 @@
   <string name="setting_provider_page_import_dialog_title">匯入供應商配置</string>
   <string name="setting_provider_page_import_service_account_json">匯入服務帳戶 JSON</string>
   <string name="setting_provider_page_import_success">匯入成功</string>
+  <string name="setting_provider_page_restore_built_in">恢復內建服務商</string>
+  <string name="setting_provider_page_restore_built_in_success">內建服務商已恢復</string>
+  <string name="setting_provider_page_restore_built_in_dialog">將重新加入所有已刪除的內建服務商，是否繼續？</string>
   <string name="setting_provider_page_input_modality">輸入模態</string>
   <string name="setting_provider_page_location">位置（例如 us-central1）</string>
   <string name="setting_provider_page_model_count">%d個模型</string>

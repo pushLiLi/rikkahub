@@ -64,6 +64,8 @@
   <string name="assistant_page_delete">删除</string>
   <string name="assistant_page_delete_body">删除 Body</string>
   <string name="assistant_page_delete_dialog_text">确定要删除这个助手吗？此操作无法撤销。</string>
+  <string name="assistant_page_restore_built_in">恢复默认助手</string>
+  <string name="assistant_page_restore_built_in_dialog">将重新添加所有已删除的默认助手，是否继续？</string>
   <string name="assistant_page_delete_header">删除 Header</string>
   <string name="assistant_page_enter_image_url">输入图片URL</string>
   <string name="assistant_page_global_memory">全局记忆</string>
@@ -926,6 +928,9 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="setting_provider_page_import_dialog_title">导入供应商配置</string>
   <string name="setting_provider_page_import_service_account_json">导入服务账号 JSON</string>
   <string name="setting_provider_page_import_success">导入成功</string>
+  <string name="setting_provider_page_restore_built_in">恢复内置服务商</string>
+  <string name="setting_provider_page_restore_built_in_success">内置服务商已恢复</string>
+  <string name="setting_provider_page_restore_built_in_dialog">将重新添加所有已删除的内置服务商，是否继续？</string>
   <string name="setting_provider_page_input_modality">输入模态</string>
   <string name="setting_provider_page_location">位置（例如 us-central1）</string>
   <string name="setting_provider_page_model_count">%d个模型</string>

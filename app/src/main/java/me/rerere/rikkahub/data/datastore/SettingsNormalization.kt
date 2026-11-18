@@ -5,10 +5,14 @@ internal fun Settings.normalized(): Settings =
     withBuiltInDefaults().withoutInvalidReferences().withValuesInRange()
 
 // 补齐缺失的内置提供商/助手/TTS，内置提供商和推荐提供商的描述信息始终以代码里的为准
+// 用户删除过的内置提供商记在 hiddenProviderIds 里，不再补回；重新添加时把 id 从中移除即可恢复
 internal fun Settings.withBuiltInDefaults(): Settings {
-    var providers = this.providers.ifEmpty { DEFAULT_PROVIDERS }.toMutableList()
+    val hiddenProviderIds = this.hiddenProviderIds.toSet()
+    var providers = this.providers
+        .ifEmpty { DEFAULT_PROVIDERS.filter { it.id !in hiddenProviderIds } }
+        .toMutableList()
     DEFAULT_PROVIDERS.forEach { defaultProvider ->
-        if (providers.none { it.id == defaultProvider.id }) {
+        if (defaultProvider.id !in hiddenProviderIds && providers.none { it.id == defaultProvider.id }) {
             providers.add(defaultProvider.copyProvider())
         }
     }
@@ -31,9 +35,13 @@ internal fun Settings.withBuiltInDefaults(): Settings {
             else -> provider
         }
     }.toMutableList()
-    val assistants = this.assistants.ifEmpty { DEFAULT_ASSISTANTS }.toMutableList()
+    // 用户删除过的默认助手记在 hiddenAssistantIds 里，机制同上面的内置提供商
+    val hiddenAssistantIds = this.hiddenAssistantIds.toSet()
+    val assistants = this.assistants
+        .ifEmpty { DEFAULT_ASSISTANTS.filter { it.id !in hiddenAssistantIds } }
+        .toMutableList()
     DEFAULT_ASSISTANTS.forEach { defaultAssistant ->
-        if (assistants.none { it.id == defaultAssistant.id }) {
+        if (defaultAssistant.id !in hiddenAssistantIds && assistants.none { it.id == defaultAssistant.id }) {
             assistants.add(defaultAssistant.copy())
         }
     }

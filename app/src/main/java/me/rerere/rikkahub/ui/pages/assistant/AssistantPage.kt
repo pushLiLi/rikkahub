@@ -7,6 +7,7 @@ import me.rerere.hugeicons.stroke.Search01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Tick01
+import me.rerere.hugeicons.stroke.Undo
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -62,7 +63,6 @@ import androidx.compose.ui.util.fastForEach
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
-import me.rerere.rikkahub.data.datastore.DEFAULT_ASSISTANTS_IDS
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.MemoryFile
@@ -101,6 +101,8 @@ fun AssistantPage(vm: AssistantVM = koinViewModel()) {
     var selectedTagIds by remember { mutableStateOf(emptySet<Uuid>()) }
     // 待删除的助手
     var deleteTarget by remember { mutableStateOf<Assistant?>(null) }
+    // 恢复默认助手的确认框
+    var showRestoreDialog by remember { mutableStateOf(false) }
     // 待复制的助手(仅在有独立记忆时需要询问是否一并复制)
     var cloneTarget by remember { mutableStateOf<Assistant?>(null) }
     var cloneWithMemories by remember { mutableStateOf(false) }
@@ -126,6 +128,12 @@ fun AssistantPage(vm: AssistantVM = koinViewModel()) {
                     BackButton()
                 },
                 actions = {
+                    // 删除过默认助手才显示恢复入口，清空 hiddenAssistantIds 后规整逻辑会补回全部默认助手
+                    if (settings.hiddenAssistantIds.isNotEmpty()) {
+                        IconButton(onClick = { showRestoreDialog = true }) {
+                            Icon(HugeIcons.Undo, stringResource(R.string.assistant_page_restore_built_in))
+                        }
+                    }
                     IconButton(
                         onClick = {
                             createState.open(Assistant())
@@ -257,6 +265,20 @@ fun AssistantPage(vm: AssistantVM = koinViewModel()) {
         onDismiss = { deleteTarget = null },
     ) {
         Text(stringResource(R.string.assistant_page_delete_dialog_text))
+    }
+
+    RikkaConfirmDialog(
+        show = showRestoreDialog,
+        title = stringResource(R.string.assistant_page_restore_built_in),
+        confirmText = stringResource(R.string.confirm),
+        dismissText = stringResource(R.string.cancel),
+        onConfirm = {
+            showRestoreDialog = false
+            vm.updateSettings { it.copy(hiddenAssistantIds = emptyList()) }
+        },
+        onDismiss = { showRestoreDialog = false },
+    ) {
+        Text(stringResource(R.string.assistant_page_restore_built_in_dialog))
     }
 
     RikkaConfirmDialog(
@@ -504,7 +526,8 @@ private fun AssistantItem(
                         text = stringResource(R.string.assistant_page_delete),
                         icon = HugeIcons.Delete01,
                         destructive = true,
-                        enabled = assistant.id !in DEFAULT_ASSISTANTS_IDS,
+                        // 至少保留一个助手，删光后当前助手兜底逻辑会取 first() 而崩溃
+                        enabled = settings.assistants.size > 1,
                         onClick = onDelete,
                     ),
                 )

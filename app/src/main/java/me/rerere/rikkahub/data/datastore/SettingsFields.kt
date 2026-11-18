@@ -122,10 +122,12 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
 
         // 提供商
         json(PROVIDERS, Settings::providers) { copy(providers = it) },
+        json(HIDDEN_PROVIDERS, Settings::hiddenProviderIds) { copy(hiddenProviderIds = it) },
 
         // 助手
         uuid(SELECT_ASSISTANT, Settings::assistantId) { copy(assistantId = it) },
         json(ASSISTANTS, Settings::assistants) { copy(assistants = it) },
+        json(HIDDEN_ASSISTANTS, Settings::hiddenAssistantIds) { copy(hiddenAssistantIds = it) },
         json(ASSISTANT_TAGS, Settings::assistantTags) { copy(assistantTags = it) },
 
         // 搜索
