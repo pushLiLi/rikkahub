@@ -9,6 +9,7 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -102,6 +103,68 @@ class QuotaQueryRunnerTest {
 
         assertEquals(ProviderQuota.Balance("unlimited"), quota)
         assertEquals("key", captured!!.header("x-api-key"))
+    }
+
+    @Test
+    fun `usage limits response is parsed into windows`() = runTest {
+        val setting = ProviderSetting.OpenAI()
+        val query = QuotaQuery(
+            enabled = true,
+            url = "https://opencode.ai/inference/go/v1/usage",
+            resultKind = QuotaQueryResultKind.USAGE_LIMITS,
+        )
+        val body = """
+            {"usage":{
+              "rolling":{"status":"ok","percent":0,"resetsAt":"2026-11-18T05:42:39.000Z"},
+              "weekly":{"status":"ok","percent":2,"resetsAt":"2026-11-23T00:00:00.000Z"},
+              "monthly":{"status":"ok","percent":45,"resetsAt":"2026-11-19T05:37:32.000Z"}
+            }}
+        """.trimIndent()
+
+        val quota = client(body).runQuotaQuery(setting.copy(quotaQuery = query)) { "key" }
+
+        val limits = quota as ProviderQuota.UsageLimits
+        assertFalse(limits.limitReached)
+        assertEquals(3, limits.windows.size)
+        assertEquals(0.0, limits.windows[0].usedPercent, 0.0)
+        assertEquals(300, limits.windows[0].windowMinutes)
+        assertEquals(10080, limits.windows[1].windowMinutes)
+        assertEquals(45.0, limits.windows[2].usedPercent, 0.0)
+        assertEquals(43200, limits.windows[2].windowMinutes)
+        limits.windows.forEach { assertNotNull(it.resetsAt) }
+    }
+
+    @Test
+    fun `usage limits mark limit reached on full window or bad status`() = runTest {
+        val setting = ProviderSetting.OpenAI()
+        val query = QuotaQuery(
+            enabled = true,
+            url = "https://opencode.ai/inference/go/v1/usage",
+            resultKind = QuotaQueryResultKind.USAGE_LIMITS,
+        )
+        val full = """{"usage":{"rolling":{"status":"ok","percent":100},"monthly":{"status":"rate_limited","percent":50}}}"""
+
+        val quota = client(full).runQuotaQuery(setting.copy(quotaQuery = query)) { "key" }
+
+        val limits = quota as ProviderQuota.UsageLimits
+        assertTrue(limits.limitReached)
+        assertEquals(2, limits.windows.size)
+        limits.windows.forEach { assertNull(it.resetsAt) }
+    }
+
+    @Test
+    fun `usage limits response without usage object fails`() = runTest {
+        val setting = ProviderSetting.OpenAI()
+        val query = QuotaQuery(
+            enabled = true,
+            resultKind = QuotaQueryResultKind.USAGE_LIMITS,
+        )
+
+        val error = runCatching {
+            client("""{"data":1}""").runQuotaQuery(setting.copy(quotaQuery = query)) { "key" }
+        }.exceptionOrNull()
+
+        assertTrue(error?.message.orEmpty().contains("usage"))
     }
 
     @Test

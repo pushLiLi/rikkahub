@@ -10,6 +10,7 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.QuotaQuery
+import me.rerere.ai.provider.QuotaQueryResultKind
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import kotlin.uuid.Uuid
@@ -326,5 +327,39 @@ val DEFAULT_PROVIDERS = listOf(
         apiKey = "",
         enabled = true,
         builtIn = true,
+    ),
+    ProviderSetting.OpenAI(
+        id = Uuid.parse("c03927ae-d9ae-4bf5-a629-8737639d8e22"),
+        name = "OpenCode Go",
+        baseUrl = "https://opencode.ai/inference/go/openai/v1",
+        apiKey = "",
+        enabled = true,
+        builtIn = true,
+        description = {
+            Text(
+                text = buildAnnotatedString {
+                    append(
+                        "OpenCode 官方订阅服务，提供 Grok、GLM、Kimi、DeepSeek、Qwen 等 30+ 开源编码模型，月付订阅内含用量，模型列表持续更新。"
+                    )
+                    appendLine()
+                    append("控制台：")
+                    withLink(LinkAnnotation.Url("https://opencode.ai/console")) {
+                        withStyle(SpanStyle(MaterialTheme.colorScheme.primary)) {
+                            append("https://opencode.ai/console")
+                        }
+                    }
+                }
+            )
+        },
+        shortDescription = {
+            Text("OpenCode 官方订阅，30+ 开源编码模型")
+        },
+        // 官方用量接口在 /go/v1 下而非 {{baseUrl}}(/go/openai/v1)，所以用绝对地址；
+        // 响应是订阅制用量窗口（rolling/weekly/monthly 的 percent），按 USAGE_LIMITS 结构解析
+        quotaQuery = QuotaQuery(
+            enabled = true,
+            url = "https://opencode.ai/inference/go/v1/usage",
+            resultKind = QuotaQueryResultKind.USAGE_LIMITS,
+        ),
     ),
 )

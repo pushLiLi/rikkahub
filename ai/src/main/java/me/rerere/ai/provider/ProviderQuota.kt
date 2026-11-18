@@ -45,6 +45,8 @@ data class QuotaQuery(
     val headers: List<CustomHeader> = listOf(CustomHeader("Authorization", "Bearer {{apiKey}}")),
     val body: String = "",
     val resultPath: String = "data.total_usage",
+    // 响应按什么结构解析；BALANCE 走 resultPath，USAGE_LIMITS 解析订阅制用量窗口
+    val resultKind: QuotaQueryResultKind = QuotaQueryResultKind.BALANCE,
 ) {
     companion object {
         const val VARIABLE_BASE_URL = "baseUrl"
@@ -60,6 +62,16 @@ data class QuotaQuery(
 enum class QuotaQueryMethod {
     GET,
     POST,
+}
+
+/** 自定义额度查询的响应结构 */
+@Serializable
+enum class QuotaQueryResultKind {
+    /** 按 [QuotaQuery.resultPath] 从响应 JSON 取一个值当余额展示 */
+    BALANCE,
+
+    /** 解析订阅制用量窗口：{"usage":{"rolling|weekly|monthly":{"status","percent","resetsAt"}}} */
+    USAGE_LIMITS,
 }
 
 /** 是否有额度可查，界面据此决定要不要显示 */
