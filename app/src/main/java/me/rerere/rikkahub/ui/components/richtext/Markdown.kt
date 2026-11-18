@@ -191,7 +191,12 @@ fun MarkdownBlock(
             table = { table -> TableCard(table) },
             details = MaterialMarkdownDefaults.components.details,
             inlineMath = if (enableLatexRendering) {
-                { formula -> LatexInline.cached(formula, context) }
+                { formula ->
+                    val inline = LatexInline.cached(formula, context)
+                    // bettertext 解析失败 → huarangmeng 引擎兜底, 仍按行内样式渲染
+                    inline.takeIf { it.layout.error == null }
+                        ?: hrmLatexInlineFallback(formula, style.fontSize, contentColor)
+                }
             } else {
                 null
             },

@@ -320,6 +320,11 @@ dependencies {
     implementation(libs.bettertext.latex)
     implementation(libs.bettertext.highlight)
 
+    // huarangmeng/latex — KaTeX 字体的第二公式引擎, 作为 bettertext 解析失败的兜底
+    // https://github.com/huarangmeng/latex
+    implementation(libs.hrm.latex.renderer)
+    implementation(libs.hrm.latex.fonts.katex)
+
     // mcp
     implementation(libs.modelcontextprotocol.kotlin.sdk)
 

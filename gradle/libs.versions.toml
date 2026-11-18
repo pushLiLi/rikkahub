@@ -2,6 +2,7 @@
 agp = "9.4.0"
 camerax = "1.6.2"
 bettertext = "v0.1.5"
+hrm-latex = "1.7.5"
 kotlin = "2.4.21"
 coreKtx = "1.19.1"
 ink = "1.1.0-alpha10"
@@ -85,6 +86,8 @@ bettertext-text = { module = "com.github.re-ovo.bettertext:text" }
 bettertext-latex = { module = "com.github.re-ovo.bettertext:latex" }
 bettertext-markdown = { module = "com.github.re-ovo.bettertext:markdown" }
 bettertext-highlight = { module = "com.github.re-ovo.bettertext:highlight" }
+hrm-latex-renderer = { module = "io.github.huarangmeng:latex-renderer", version.ref = "hrm-latex" }
+hrm-latex-fonts-katex = { module = "io.github.huarangmeng:latex-fonts-katex", version.ref = "hrm-latex" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }

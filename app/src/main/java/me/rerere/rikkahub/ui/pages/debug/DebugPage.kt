@@ -52,6 +52,7 @@ import me.rerere.hugeicons.stroke.Wrench01
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.ui.components.ui.UIAvatar
 import me.rerere.rikkahub.ui.components.nav.BackButton
+import me.rerere.rikkahub.ui.components.richtext.HrmMathBlock
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import me.rerere.rikkahub.ui.components.richtext.MathBlock
 import me.rerere.rikkahub.ui.components.richtext.Mermaid
@@ -289,6 +290,8 @@ private fun MainPage(vm: DebugVM) {
         var markdown by remember { mutableStateOf("") }
         MarkdownBlock(markdown, modifier = Modifier.fillMaxWidth())
         MathBlock(markdown)
+        // huarangmeng 引擎对照: 输入公式源码直接对比两个引擎的观感
+        HrmMathBlock(markdown, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(
             value = markdown,
             onValueChange = { markdown = it },
