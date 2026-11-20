@@ -86,6 +86,9 @@ import kotlin.time.Clock
 private const val COLLAPSE_LINES = 10
 private val PREVIEWABLE_LANGUAGES = setOf("html", "svg")
 
+// 有些模型会把 SVG 标成 xml/html/plaintext，源码本身以 <svg 开头的也当作图形处理
+private val SVG_CAPABLE_LANGUAGES = setOf("html", "xml", "plaintext")
+
 @Composable
 fun HighlightCodeBlock(
     code: String,
@@ -106,9 +109,15 @@ fun HighlightCodeBlock(
     val context = LocalContext.current
     val settings = LocalSettings.current
     val normalizedLanguage = remember(language) { language.lowercase() }
-    val canInlinePreview = completeCodeBlock && normalizedLanguage in PREVIEWABLE_LANGUAGES
-    var previewMode by remember(canInlinePreview, code, normalizedLanguage) {
-        mutableStateOf(false)
+    val isSvg = remember(normalizedLanguage, code) {
+        normalizedLanguage == "svg" ||
+            (normalizedLanguage in SVG_CAPABLE_LANGUAGES &&
+                code.trimStart().startsWith("<svg", ignoreCase = true))
+    }
+    val canInlinePreview = completeCodeBlock && (normalizedLanguage in PREVIEWABLE_LANGUAGES || isSvg)
+    // SVG 生成完成后直接显示图形，想看源码再点按钮切回去
+    var previewMode by remember(canInlinePreview, isSvg) {
+        mutableStateOf(isSvg)
     }
 
     var isExpanded by remember(settings.displaySetting.codeBlockAutoCollapse) {
@@ -164,6 +173,12 @@ fun HighlightCodeBlock(
             modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 8.dp)
         ) {
             when {
+                canInlinePreview && previewMode && isSvg -> {
+                    SvgPreview(
+                        code = code,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 canInlinePreview && previewMode -> {
                     CodeBlockPreview(
                         code = code,
@@ -452,7 +467,8 @@ private fun HighlightCodeActions(
                 )
             }
 
-            if (completeCodeBlock && normalizedLanguage in PREVIEWABLE_LANGUAGES) {
+            // HTML 用全屏 WebView 查看；SVG 的全屏按钮在 SvgPreview 里（要带上选好的背景色）
+            if (completeCodeBlock && normalizedLanguage == "html") {
                 Icon(
                     imageVector = HugeIcons.Eye,
                     contentDescription = stringResource(id = R.string.code_block_preview),

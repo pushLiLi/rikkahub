@@ -297,6 +297,10 @@
   <string name="code_block_copy">复制代码</string>
   <string name="code_block_expand">展开</string>
   <string name="code_block_preview">预览</string>
+  <string name="svg_preview_background">切换背景</string>
+  <string name="svg_preview_save_image">保存为图片</string>
+  <string name="svg_preview_save_failed">图片保存失败</string>
+  <string name="svg_preview_saved">图片已保存到相册</string>
   <string name="collapse_translation">折叠翻译</string>
   <string name="confirm">确认</string>
   <string name="confirm_delete">确认删除</string>
