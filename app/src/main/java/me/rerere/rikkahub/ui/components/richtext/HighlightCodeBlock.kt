@@ -63,9 +63,12 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ArrowDown01
 import me.rerere.hugeicons.stroke.ArrowUp01
 import me.rerere.hugeicons.stroke.Code
+import me.rerere.hugeicons.stroke.Colors
 import me.rerere.hugeicons.stroke.Copy01
 import me.rerere.hugeicons.stroke.Download04
 import me.rerere.hugeicons.stroke.Eye
+import me.rerere.hugeicons.stroke.Fullscreen
+import me.rerere.hugeicons.stroke.ImageDownload
 import me.rerere.hugeicons.stroke.View
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
@@ -119,6 +122,7 @@ fun HighlightCodeBlock(
     var previewMode by remember(canInlinePreview, isSvg) {
         mutableStateOf(isSvg)
     }
+    val svgPreviewState = rememberSvgPreviewState()
 
     var isExpanded by remember(settings.displaySetting.codeBlockAutoCollapse) {
         mutableStateOf(!settings.displaySetting.codeBlockAutoCollapse)
@@ -164,99 +168,103 @@ fun HighlightCodeBlock(
                 completeCodeBlock = completeCodeBlock,
                 previewMode = previewMode,
                 canInlinePreview = canInlinePreview,
+                isSvg = isSvg,
+                svgPreviewState = svgPreviewState,
                 onTogglePreviewMode = {
                     previewMode = !previewMode
                 },
             )
         }
-        Column(
-            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 8.dp)
-        ) {
-            when {
-                canInlinePreview && previewMode && isSvg -> {
-                    SvgPreview(
-                        code = code,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                canInlinePreview && previewMode -> {
-                    CodeBlockPreview(
-                        code = code,
-                        language = normalizedLanguage,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp),
-                    )
-                }
-                completeCodeBlock && normalizedLanguage == "mermaid" -> {
-                    Mermaid(
-                        code = code,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                else -> {
-                    val textStyle = LocalTextStyle.current.merge(style)
-                    val codeLines = remember(code) { code.lines() }
-                    val collapsedCode = remember(codeLines) { codeLines.take(COLLAPSE_LINES).joinToString("\n") }
-                    val displayCode = if (isExpanded) code else collapsedCode
-                    val displayLines = remember(displayCode) { displayCode.lines() }
-
-                    // 如果显示行号且自动换行，需要逐行渲染以保持对齐
-                    when {
-                        showLineNumbers && autoWrap -> {
-                            CodeBlockWithLineNumbersWrapped(
-                                displayLines = displayLines,
-                                language = language,
-                                textStyle = textStyle,
-                                colorPalette = colorPalette,
-                            )
-                        }
-                        else -> {
-                            CodeBlockDefault(
-                                displayCode = displayCode,
-                                displayLines = displayLines,
-                                language = language,
-                                textStyle = textStyle,
-                                colorPalette = colorPalette,
-                                autoWrap = autoWrap,
-                                showLineNumbers = showLineNumbers,
-                                scrollState = scrollState,
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.height(4.dp))
-                    // 代码折叠按钮
-                    if (settings.displaySetting.codeBlockAutoCollapse && codeLines.size > COLLAPSE_LINES) {
-                        Box(
+        if (canInlinePreview && previewMode && isSvg) {
+            SvgPreview(
+                code = code,
+                state = svgPreviewState,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else {
+            Column(
+                modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 8.dp)
+            ) {
+                when {
+                    canInlinePreview && previewMode -> {
+                        CodeBlockPreview(
+                            code = code,
+                            language = normalizedLanguage,
                             modifier = Modifier
-                                .onClick {
-                                    isExpanded = !isExpanded
-                                }
-                                .fillMaxWidth(),
-                        ) {
-                            Row(
+                                .fillMaxWidth()
+                                .height(200.dp),
+                        )
+                    }
+                    completeCodeBlock && normalizedLanguage == "mermaid" -> {
+                        Mermaid(
+                            code = code,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    else -> {
+                        val textStyle = LocalTextStyle.current.merge(style)
+                        val codeLines = remember(code) { code.lines() }
+                        val collapsedCode = remember(codeLines) { codeLines.take(COLLAPSE_LINES).joinToString("\n") }
+                        val displayCode = if (isExpanded) code else collapsedCode
+                        val displayLines = remember(displayCode) { displayCode.lines() }
+
+                        // 如果显示行号且自动换行，需要逐行渲染以保持对齐
+                        when {
+                            showLineNumbers && autoWrap -> {
+                                CodeBlockWithLineNumbersWrapped(
+                                    displayLines = displayLines,
+                                    language = language,
+                                    textStyle = textStyle,
+                                    colorPalette = colorPalette,
+                                )
+                            }
+                            else -> {
+                                CodeBlockDefault(
+                                    displayCode = displayCode,
+                                    displayLines = displayLines,
+                                    language = language,
+                                    textStyle = textStyle,
+                                    colorPalette = colorPalette,
+                                    autoWrap = autoWrap,
+                                    showLineNumbers = showLineNumbers,
+                                    scrollState = scrollState,
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(4.dp))
+                        // 代码折叠按钮
+                        if (settings.displaySetting.codeBlockAutoCollapse && codeLines.size > COLLAPSE_LINES) {
+                            Box(
                                 modifier = Modifier
-                                    .align(Alignment.Center)
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                    .onClick {
+                                        isExpanded = !isExpanded
+                                    }
+                                    .fillMaxWidth(),
                             ) {
-                                Icon(
-                                    imageVector = if (isExpanded) HugeIcons.ArrowUp01 else HugeIcons.ArrowDown01,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(textStyle.fontSize.toDp())
-                                )
-                                Text(
-                                    text = if (isExpanded) {
-                                        stringResource(id = R.string.code_block_collapse)
-                                    } else {
-                                        stringResource(id = R.string.code_block_expand)
-                                    },
-                                    fontSize = textStyle.fontSize,
-                                    lineHeight = textStyle.lineHeight,
-                                )
+                                Row(
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = if (isExpanded) HugeIcons.ArrowUp01 else HugeIcons.ArrowDown01,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(textStyle.fontSize.toDp())
+                                    )
+                                    Text(
+                                        text = if (isExpanded) {
+                                            stringResource(id = R.string.code_block_collapse)
+                                        } else {
+                                            stringResource(id = R.string.code_block_expand)
+                                        },
+                                        fontSize = textStyle.fontSize,
+                                        lineHeight = textStyle.lineHeight,
+                                    )
+                                }
                             }
                         }
                     }
@@ -377,15 +385,18 @@ private fun HighlightCodeActions(
     completeCodeBlock: Boolean = true,
     previewMode: Boolean = false,
     canInlinePreview: Boolean = false,
+    isSvg: Boolean = false,
+    svgPreviewState: SvgPreviewState? = null,
     onTogglePreviewMode: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    val showSvgTools = canInlinePreview && isSvg && previewMode && svgPreviewState != null
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = language,
+            text = if (isSvg) "svg" else language,
             fontSize = 12.sp,
             lineHeight = 12.sp,
             fontFamily = JetbrainsMono,
@@ -394,11 +405,34 @@ private fun HighlightCodeActions(
         )
         Spacer(Modifier.weight(1f))
         Row(
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (showSvgTools) 12.dp else 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val iconSize = 16.dp
             val iconTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+
+            if (showSvgTools) {
+                Icon(
+                    imageVector = HugeIcons.Colors,
+                    contentDescription = stringResource(id = R.string.svg_preview_background),
+                    tint = iconTint,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .onClick { svgPreviewState.toggleBackground() }
+                        .padding(4.dp)
+                        .size(iconSize)
+                )
+                Icon(
+                    imageVector = HugeIcons.ImageDownload,
+                    contentDescription = stringResource(id = R.string.svg_preview_save_image),
+                    tint = iconTint,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .onClick { svgPreviewState.requestExportPng() }
+                        .padding(4.dp)
+                        .size(iconSize)
+                )
+            }
 
             Icon(
                 imageVector = HugeIcons.Download04,
@@ -407,24 +441,28 @@ private fun HighlightCodeActions(
                 modifier = Modifier
                     .clip(RoundedCornerShape(4.dp))
                     .onClick {
-                        val extension = when (language.lowercase()) {
-                            "kotlin" -> "kt"
-                            "java" -> "java"
-                            "python" -> "py"
-                            "javascript" -> "js"
-                            "typescript" -> "ts"
-                            "cpp", "c++" -> "cpp"
-                            "c" -> "c"
-                            "html" -> "html"
-                            "css" -> "css"
-                            "xml" -> "xml"
-                            "json" -> "json"
-                            "yaml", "yml" -> "yml"
-                            "markdown", "md" -> "md"
-                            "sql" -> "sql"
-                            "sh", "bash" -> "sh"
-                            "svg" -> "svg"
-                            else -> "txt"
+                        val extension = if (isSvg) {
+                            "svg"
+                        } else {
+                            when (language.lowercase()) {
+                                "kotlin" -> "kt"
+                                "java" -> "java"
+                                "python" -> "py"
+                                "javascript" -> "js"
+                                "typescript" -> "ts"
+                                "cpp", "c++" -> "cpp"
+                                "c" -> "c"
+                                "html" -> "html"
+                                "css" -> "css"
+                                "xml" -> "xml"
+                                "json" -> "json"
+                                "yaml", "yml" -> "yml"
+                                "markdown", "md" -> "md"
+                                "sql" -> "sql"
+                                "sh", "bash" -> "sh"
+                                "svg" -> "svg"
+                                else -> "txt"
+                            }
                         }
                         createDocumentLauncher.launch(
                             "code_${
@@ -467,8 +505,18 @@ private fun HighlightCodeActions(
                 )
             }
 
-            // HTML 用全屏 WebView 查看；SVG 的全屏按钮在 SvgPreview 里（要带上选好的背景色）
-            if (completeCodeBlock && normalizedLanguage == "html") {
+            if (showSvgTools) {
+                Icon(
+                    imageVector = HugeIcons.Fullscreen,
+                    contentDescription = stringResource(id = R.string.code_block_preview),
+                    tint = iconTint,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .onClick { svgPreviewState.openFullscreen() }
+                        .padding(4.dp)
+                        .size(iconSize)
+                )
+            } else if (completeCodeBlock && normalizedLanguage == "html") {
                 Icon(
                     imageVector = HugeIcons.Eye,
                     contentDescription = stringResource(id = R.string.code_block_preview),
