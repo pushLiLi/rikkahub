@@ -3,6 +3,7 @@ package me.rerere.rikkahub.ui.components.ai
 import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -105,8 +106,10 @@ internal fun rememberChatAttachmentPickerActions(
             onAttachmentAdded()
         },
     )
+    // 用系统相册选择器 (Photo Picker) 而不是文档管理器: 后者会记住上次停留的目录,
+    // 停在空文件夹时看不到任何图片; Photo Picker 永远直接展示相册网格
     val imagePickerLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selectedUris ->
+        rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { selectedUris ->
             if (selectedUris.isNotEmpty()) {
                 Log.d("ImagePickButton", "Selected URIs: $selectedUris")
                 if (!setting.displaySetting.skipCropImage && selectedUris.size == 1) {
@@ -121,7 +124,7 @@ internal fun rememberChatAttachmentPickerActions(
         }
 
     val videoPickerLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selectedUris ->
+        rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { selectedUris ->
             if (selectedUris.isNotEmpty()) {
                 inputState.addVideos(filesManager.createChatFilesByContents(selectedUris))
                 onAttachmentAdded()
@@ -184,8 +187,16 @@ internal fun rememberChatAttachmentPickerActions(
 
     return ChatAttachmentPickerActions(
         onTakePicture = onTakePicture,
-        onPickImage = { imagePickerLauncher.launch("image/*") },
-        onPickVideo = { videoPickerLauncher.launch("video/*") },
+        onPickImage = {
+            imagePickerLauncher.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+            )
+        },
+        onPickVideo = {
+            videoPickerLauncher.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+            )
+        },
         onPickAudio = { audioPickerLauncher.launch("audio/*") },
         onPickFile = { filePickerLauncher.launch(arrayOf("*/*")) },
         onSketch = { showSketch = true },
