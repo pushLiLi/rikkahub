@@ -162,6 +162,10 @@ internal fun FilesPicker(
                 mcpManager = mcpManager,
                 onUpdateAssistant = onUpdateAssistant,
                 onBack = { page = FilesPickerPage.MAIN },
+                onManage = {
+                    onDismiss()
+                    navController.navigate(Screen.SettingMcp)
+                },
             )
 
             FilesPickerPage.EXTENSIONS -> ExtensionPickerPage(
@@ -218,10 +222,10 @@ internal fun FilesPicker(
 
                 // 分段列表：各项按显示条件依次占位，首尾项才有大圆角
                 val showWorkspace = workspaces.isNotEmpty()
-                val showMcp = settings.mcpServers.isNotEmpty()
                 // 限制了上下文消息数就是滚动上下文，旧消息会自动移出，不需要压缩
                 val showCompress = assistant.contextMessageLimit <= 0
-                val itemCount = 2 + listOf(showWorkspace, showWorkspace && showCwd, showMcp, showCompress).count { it }
+                // MCP 入口常驻：没有服务器时选择页里给出跳转设置的空状态
+                val itemCount = 3 + listOf(showWorkspace, showWorkspace && showCwd, showCompress).count { it }
                 var itemIndex = 0
                 Column(
                     verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
@@ -279,15 +283,13 @@ internal fun FilesPicker(
                         }
                     }
 
-                    if (showMcp) {
-                        McpPickerListItem(
-                            assistant = assistant,
-                            servers = settings.mcpServers,
-                            mcpManager = mcpManager,
-                            shapes = ListItemDefaults.segmentedShapes(index = itemIndex++, count = itemCount),
-                            onClick = { page = FilesPickerPage.MCP },
-                        )
-                    }
+                    McpPickerListItem(
+                        assistant = assistant,
+                        servers = settings.mcpServers,
+                        mcpManager = mcpManager,
+                        shapes = ListItemDefaults.segmentedShapes(index = itemIndex++, count = itemCount),
+                        onClick = { page = FilesPickerPage.MCP },
+                    )
 
                     // Extensions (Quick Messages + Prompt Injections + Skills)
                     val activeCount =

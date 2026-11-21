@@ -50,6 +50,7 @@ import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.prompts.buildCompressPrompt
 import me.rerere.rikkahub.data.ai.tools.InvalidMcpServerNamesException
 import me.rerere.rikkahub.data.ai.tools.shouldUseExternalWebSearch
+import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.event.AppEvent
@@ -75,6 +76,7 @@ import me.rerere.rikkahub.data.model.selectBranch
 import me.rerere.rikkahub.data.model.toMessageNode
 import me.rerere.rikkahub.data.model.withAssistantUpdate
 import me.rerere.rikkahub.data.model.withNodeFavorite
+import me.rerere.rikkahub.data.model.withStoredAssistantDiff
 import me.rerere.rikkahub.data.model.withToolApproval
 import me.rerere.rikkahub.data.model.withTranslation
 import me.rerere.rikkahub.data.model.withoutConversationFields
@@ -222,6 +224,49 @@ class ChatService(
                     is BackgroundShellNoticeEvent.Withdrawn ->
                         sessionManager.get(event.conversationId)?.inbox?.withdraw(event.key)
                 }
+            }
+        }
+        // 助手设置页（或 Web 设置接口）修改助手后，把会话跟随字段的变化同步到该助手已开始的活跃会话
+        appScope.launch {
+            settingsStore.awaitLoaded()
+            var previousAssistants = settingsStore.settingsFlow.value.assistants
+            settingsStore.settingsFlow.collect { settings ->
+                val assistants = settings.assistants
+                if (assistants != previousAssistants) {
+                    syncActiveConversationsWithAssistantChanges(previousAssistants, assistants, settings)
+                    previousAssistants = assistants
+                }
+            }
+        }
+    }
+
+    /**
+     * 助手被修改后，把会话跟随字段（MCP、模式注入、Lorebook、技能、模型等）的这次变化
+     * 同步到内存里该助手已开始的会话。未开始的会话本来就跟随助手；
+     * 不在内存里的会话保留自己的快照，等加载后继续用。
+     */
+    private suspend fun syncActiveConversationsWithAssistantChanges(
+        previous: List<Assistant>,
+        current: List<Assistant>,
+        settings: Settings,
+    ) {
+        val changedAssistants = current.mapNotNull { new ->
+            val old = previous.firstOrNull { it.id == new.id } ?: return@mapNotNull null
+            if (old == new) return@mapNotNull null
+            old to new
+        }
+        changedAssistants.forEach { (old, new) ->
+            sessionManager.snapshot().forEach { session ->
+                val conversation = session.state.value
+                if (!session.isInitialized || conversation.assistantId != new.id || conversation.config == null) {
+                    return@forEach
+                }
+                // 没有会话跟随字段变化时不动这个会话，也不写数据库
+                if (conversation.withStoredAssistantDiff(old, new, settings) == conversation) return@forEach
+                session.updateMetadata(
+                    transform = { it.withStoredAssistantDiff(old, new, settings) },
+                    persist = conversationRepo::updateConversationConfig,
+                )
             }
         }
     }

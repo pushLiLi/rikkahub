@@ -208,6 +208,7 @@ internal fun McpPickerPage(
     mcpManager: McpManager,
     onUpdateAssistant: (Assistant) -> Unit,
     onBack: () -> Unit,
+    onManage: (() -> Unit)? = null,
 ) {
     val status by mcpManager.syncingStatus.collectAsStateWithLifecycle()
     val loading = status.values.any { it == McpStatus.Connecting }
@@ -246,6 +247,7 @@ internal fun McpPickerPage(
             assistant = assistant,
             servers = servers,
             onUpdateAssistant = onUpdateAssistant,
+            onManage = onManage,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
@@ -261,10 +263,23 @@ fun McpPicker(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     colors: ListItemColors = ListItemDefaults.segmentedColors(),
+    onManage: (() -> Unit)? = null,
     onUpdateAssistant: (Assistant) -> Unit
 ) {
     val mcpManager = koinInject<McpManager>()
     val enabledServers = servers.fastFilter { it.commonOptions.enable }
+    // 没有可用的 MCP 服务器时给出跳转设置的空状态，不然这一页什么都没有
+    if (enabledServers.isEmpty() && onManage != null) {
+        Column(modifier = modifier) {
+            ExtensionEmptyState(
+                message = stringResource(R.string.setting_mcp_page_no_mcp_servers_found),
+                buttonText = stringResource(R.string.mcp_picker_go_to_settings),
+                onAction = onManage,
+                icon = HugeIcons.McpServer,
+            )
+        }
+        return
+    }
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = contentPadding,
@@ -344,6 +359,9 @@ fun McpPicker(
                     }
                 }
             }
+        }
+        if (onManage != null) {
+            item { ManageButton(onClick = onManage) }
         }
     }
 }

@@ -215,8 +215,9 @@ private fun ExtensionListItem(
     }
 }
 
+// 扩展类选择页底部跳转管理页的按钮，MCP 选择页同样使用
 @Composable
-private fun ManageButton(onClick: () -> Unit) {
+internal fun ManageButton(onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()

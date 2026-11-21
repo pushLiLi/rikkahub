@@ -202,7 +202,10 @@ class ConversationConfigTest {
         val bound = conversation().bindConfig(settings()).copy(workspaceCwd = "/workspace/project")
         val assistantView = settings().getAssistantOf(bound)
 
-        val sameWorkspace = bound.withAssistantUpdate(assistantView.copy(reasoningLevel = ReasoningLevel.LOW), settings())
+        val sameWorkspace = bound.withAssistantUpdate(
+            assistantView.copy(reasoningLevel = ReasoningLevel.LOW),
+            settings()
+        )
         val otherWorkspace = bound.withAssistantUpdate(assistantView.copy(workspaceId = Uuid.random()), settings())
 
         assertEquals("/workspace/project", sameWorkspace.workspaceCwd)
@@ -219,5 +222,75 @@ class ConversationConfigTest {
         // 会话自己绑定过的保留，没绑定过的继承助手
         assertEquals(setOf(conversationInjection), bound.modeInjectionIds)
         assertEquals(setOf(lorebook), bound.lorebookIds)
+    }
+
+    @Test
+    fun `assistant removals sync to the bound conversation keeping conversation-only picks`() {
+        val bound = conversation().bindConfig(settings())
+        // 会话开始后在聊天页自己勾了一个助手没有的 MCP 服务器
+        val conversationOnlyMcp = Uuid.random()
+        val started = bound.copy(
+            config = bound.config?.copy(mcpServers = bound.config.mcpServers + conversationOnlyMcp)
+        )
+        val settingsWithExtra = settings().copy(
+            mcpServers = settings().mcpServers + McpServerConfig.StreamableHTTPServer(id = conversationOnlyMcp),
+        )
+        // 助手设置里关掉学习模式注入、清空 MCP 服务器
+        val changed = assistant.copy(modeInjectionIds = emptySet(), mcpServers = emptySet())
+
+        val updated = started.withStoredAssistantDiff(assistant, changed, settingsWithExtra)
+
+        assertEquals(emptySet<Uuid>(), updated.modeInjectionIds)
+        // 助手移除的从会话上移除，会话自己勾的保留
+        assertEquals(setOf(conversationOnlyMcp), updated.config?.mcpServers)
+    }
+
+    @Test
+    fun `assistant additions sync to the bound conversation`() {
+        val bound = conversation().bindConfig(settings())
+        val newInjection = Uuid.random()
+        val newSkill = "another-skill"
+        val changed = assistant.copy(
+            modeInjectionIds = assistant.modeInjectionIds + newInjection,
+            enabledSkills = assistant.enabledSkills + newSkill,
+        )
+        val settingsWithExtra = settings().copy(
+            modeInjections = settings().modeInjections + PromptInjection.ModeInjection(id = newInjection),
+        )
+
+        val updated = bound.withStoredAssistantDiff(assistant, changed, settingsWithExtra)
+
+        assertEquals(setOf(injection, newInjection), updated.modeInjectionIds)
+        assertEquals(setOf("skill", newSkill), updated.config?.enabledSkills)
+    }
+
+    @Test
+    fun `assistant single-value changes follow with model search and cwd reset`() {
+        val bound = conversation().bindConfig(settings()).copy(workspaceCwd = "/workspace/project")
+        val changed = assistant.copy(chatModelId = modelB.id, workspaceId = null)
+
+        val updated = bound.withStoredAssistantDiff(assistant, changed, settings())
+
+        assertEquals(modelB.id, updated.config?.chatModelId)
+        // 内置搜索跟随新模型自身的开关
+        assertEquals(false, updated.config?.builtInSearch)
+        assertNull(updated.config?.workspaceId)
+        assertNull(updated.workspaceCwd)
+    }
+
+    @Test
+    fun `assistant changes do not touch unstarted conversations`() {
+        val unstarted = conversation()
+        val changed = assistant.copy(mcpServers = emptySet(), systemPrompt = "changed")
+
+        assertSame(unstarted, unstarted.withStoredAssistantDiff(assistant, changed, settings()))
+    }
+
+    @Test
+    fun `assistant change without conversation-following fields keeps the conversation`() {
+        val bound = conversation().bindConfig(settings())
+        val changed = assistant.copy(systemPrompt = "changed", quickMessageIds = setOf(Uuid.random()))
+
+        assertSame(bound, bound.withStoredAssistantDiff(assistant, changed, settings()))
     }
 }

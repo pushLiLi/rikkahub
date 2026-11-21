@@ -45,7 +45,6 @@ import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
-import me.rerere.rikkahub.data.model.MemoryFile
 import me.rerere.rikkahub.data.model.getAssistantOf
 import me.rerere.rikkahub.data.model.getChatModelOf
 import me.rerere.rikkahub.data.repository.MemoryRepository
@@ -60,7 +59,7 @@ private const val TAG = "ChatRequestFactory"
  * 一轮对话的请求上下文，按会话固定的配置解析一次。
  *
  * 正常对话和压缩用同一份上下文组装请求，系统提示词、工具定义、参数和 sessionId 都相同，
- * 压缩请求的前缀才能和上一轮对话一致，命中提示词缓存。
+ * 压缩请求的前缀才能和上一轮对话一致，命中提示词缓存。记忆不在其中：每一步组装请求时单独取最新的。
  */
 class ChatTurnContext(
     val settings: Settings,
@@ -70,7 +69,6 @@ class ChatTurnContext(
     val conversationId: Uuid,
     val conversationSystemPrompt: String?,
     val workspaceCwd: String?,
-    val memories: List<MemoryFile>,
     val tools: List<Tool>,
 )
 
@@ -100,7 +98,7 @@ class ChatRequestFactory(
         RegexOutputTransformer,
     )
 
-    /** 解析本轮的助手、模型、记忆和工具；MCP 服务名不合法时抛出 InvalidMcpServerNamesException */
+    /** 解析本轮的助手、模型和工具；MCP 服务名不合法时抛出 InvalidMcpServerNamesException */
     suspend fun createContext(settings: Settings, conversation: Conversation): ChatTurnContext {
         // 模型、思考级别、搜索、工具等以会话上固定的配置为准
         val assistant = settings.getAssistantOf(conversation)
@@ -115,7 +113,6 @@ class ChatRequestFactory(
             conversationId = conversation.id,
             conversationSystemPrompt = conversation.customSystemPrompt,
             workspaceCwd = conversation.workspaceCwd,
-            memories = if (assistant.enableMemory) memoryRepository.getFiles(assistant.memoryId) else emptyList(),
             tools = chatToolFactory.createTools(
                 settings = settings,
                 assistant = assistant,
@@ -242,10 +239,10 @@ class ChatRequestFactory(
                     append(effectiveSystemPrompt)
                 }
 
-                // 记忆
+                // 记忆：每一步都取最新的，模型刚用记忆工具写入、后台整理或用户手动改过的内容，下一步请求立刻可见
                 if (assistant.enableMemory) {
                     appendLine()
-                    append(buildMemoryPrompt(turn.memories))
+                    append(buildMemoryPrompt(memoryRepository.getFiles(assistant.memoryId)))
                 }
                 // 工具prompt
                 turn.tools.forEach { tool ->
