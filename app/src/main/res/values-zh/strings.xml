@@ -964,6 +964,9 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="setting_provider_page_scan_qr_code">扫描二维码</string>
   <string name="setting_provider_page_search_providers">搜索提供商</string>
   <string name="setting_provider_page_recommend">推荐提供商</string>
+  <string name="setting_provider_page_all_providers">全部供应商</string>
+  <string name="setting_provider_page_models_count">%1$d 个模型</string>
+  <string name="setting_provider_page_directory_not_loaded">供应商目录还没准备好，请稍后再试</string>
   <string name="setting_provider_page_select_all">全选（%1$d）</string>
   <string name="setting_provider_page_select_from_gallery">从相册选择</string>
   <string name="setting_provider_page_service_account_email">服务账户邮箱</string>

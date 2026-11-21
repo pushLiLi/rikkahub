@@ -995,6 +995,9 @@
   <string name="setting_provider_page_scan_qr_code">Scan QR Code</string>
   <string name="setting_provider_page_search_providers">Search providers</string>
   <string name="setting_provider_page_recommend">Recommended providers</string>
+  <string name="setting_provider_page_all_providers">All providers</string>
+  <string name="setting_provider_page_models_count">%1$d models</string>
+  <string name="setting_provider_page_directory_not_loaded">Provider directory is not ready yet, please try again later</string>
   <string name="setting_provider_page_select_all">Select All (%1$d)</string>
   <string name="setting_provider_page_select_from_gallery">Select from Gallery</string>
   <string name="setting_provider_page_service_account_email">Service Account Email</string>

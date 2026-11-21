@@ -1074,6 +1074,9 @@
   <string name="setting_provider_page_qr_decode_failed">فشل تحليل رمز QR: %s</string>
   <string name="setting_provider_page_reasoning">الاستدلال</string>
   <string name="setting_provider_page_recommend">المزوّدون الموصى بهم</string>
+  <string name="setting_provider_page_all_providers">جميع المزوّدين</string>
+  <string name="setting_provider_page_models_count">%1$d من النماذج</string>
+  <string name="setting_provider_page_directory_not_loaded">دليل المزوّدين غير جاهز بعد، حاول مرة أخرى لاحقًا</string>
   <string name="setting_provider_page_response_api">Response API</string>
   <string name="setting_provider_page_response_api_warning">Response API هي واجهة API من الجيل التالي من OpenAI. لا يدعمها معظم المزوّدين. إذا كنت لا تعرف ما هي، فلا تفعّلها.</string>
   <string name="setting_provider_page_save">حفظ</string>

@@ -909,6 +909,9 @@ mDNS 주소: .local 호스트네임을 사용하며, IP를 몰라도 같은 네�
   <string name="setting_provider_page_scan_qr_code">QR 코드 스캔</string>
   <string name="setting_provider_page_search_providers">공급자 검색</string>
   <string name="setting_provider_page_recommend">추천 공급자</string>
+  <string name="setting_provider_page_all_providers">전체 공급자</string>
+  <string name="setting_provider_page_models_count">모델 %1$d개</string>
+  <string name="setting_provider_page_directory_not_loaded">공급자 디렉터리가 아직 준비되지 않았습니다. 나중에 다시 시도해 주세요.</string>
   <string name="setting_provider_page_select_all">전체 선택 (%1$d)</string>
   <string name="setting_provider_page_select_from_gallery">갤러리에서 선택</string>
   <string name="setting_provider_page_service_account_email">서비스 계정 이메일</string>

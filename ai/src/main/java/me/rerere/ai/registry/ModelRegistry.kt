@@ -731,6 +731,14 @@ object ModelRegistry {
         this.catalog = catalog
     }
 
+    /** models.dev 供应商预设目录，目录未安装时为空列表 */
+    val providerPresets: List<ProviderPreset>
+        get() = catalog?.providerPresets().orEmpty()
+
+    /** 供应商预设的聊天模型列表，目录未安装时为空列表 */
+    fun presetModelsOf(providerId: String, limit: Int): List<PresetModel> =
+        catalog?.chatModelsOf(providerId, limit).orEmpty()
+
     val MODEL_INPUT_MODALITIES = ModelData { modelId ->
         val info = catalog?.find(modelId)
         if (info != null) {

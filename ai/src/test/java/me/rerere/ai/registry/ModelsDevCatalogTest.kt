@@ -5,6 +5,7 @@ import me.rerere.ai.provider.ModelAbility
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayOutputStream
 
@@ -53,9 +54,14 @@ class ModelsDevCatalogTest {
             }
           },
           "siliconflow": {
+            "name": "SiliconFlow",
+            "api": "https://api.siliconflow.com/v1",
+            "doc": "https://docs.siliconflow.cn/",
+            "npm": "@ai-sdk/openai-compatible",
             "models": {
               "Pro/deepseek-ai/DeepSeek-V3": {
                 "id": "Pro/deepseek-ai/DeepSeek-V3",
+                "name": "DeepSeek V3 (Pro)",
                 "reasoning": false,
                 "tool_call": true,
                 "modalities": { "input": ["text"], "output": ["text"] },
@@ -63,9 +69,21 @@ class ModelsDevCatalogTest {
               },
               "kimi-k3": {
                 "id": "kimi-k3",
+                "name": "Kimi K3",
                 "reasoning": true,
                 "tool_call": null,
                 "modalities": { "input": ["text"], "output": ["text"] }
+              },
+              "old-model": {
+                "id": "old-model",
+                "status": "deprecated",
+                "reasoning": true,
+                "tool_call": true,
+                "modalities": { "input": ["text"], "output": ["text"] }
+              },
+              "image-only-model": {
+                "id": "image-only-model",
+                "modalities": { "input": ["text", "image"], "output": ["image"] }
               }
             }
           },
@@ -169,6 +187,47 @@ class ModelsDevCatalogTest {
         assertEquals(visionInput, decoded.find("kimi-k3")!!.inputModalities)
         assertEquals(1_000_000, decoded.find("claude-sonnet-4-5")!!.contextLength)
         assertEquals(visionInput, decoded.find("gemini-2.5-flash-image")!!.outputModalities)
+    }
+
+    @Test
+    fun providerPresetsKeepMetadata() {
+        val presets = catalog.providerPresets()
+        val ids = presets.map { it.id }
+        // 没有聊天模型的供应商不会出现在目录里
+        assertTrue("anthropic" in ids)
+        assertTrue("openrouter" in ids)
+        assertTrue("google" in ids)
+
+        val siliconflow = presets.first { it.id == "siliconflow" }
+        assertEquals("SiliconFlow", siliconflow.displayName)
+        assertEquals("https://api.siliconflow.com/v1", siliconflow.baseUrl)
+        assertEquals("https://docs.siliconflow.cn/", siliconflow.docUrl)
+        assertEquals("@ai-sdk/openai-compatible", siliconflow.npmPackage)
+        // deprecated 与纯图片输出的模型不计入
+        assertEquals(2, siliconflow.chatModelCount)
+
+        // 没给 name 的供应商用 id 当显示名；没给 api 的 baseUrl 为 null
+        val openrouter = presets.first { it.id == "openrouter" }
+        assertEquals("openrouter", openrouter.displayName)
+        assertNull(openrouter.baseUrl)
+    }
+
+    @Test
+    fun chatModelsOfFiltersAndLimits() {
+        val models = catalog.chatModelsOf("siliconflow", limit = 20)
+        // deprecated 与纯图片输出的模型被过滤，显示名缺省回落到模型 id
+        assertEquals(listOf("Pro/deepseek-ai/DeepSeek-V3", "kimi-k3"), models.map { it.modelId })
+        assertEquals("DeepSeek V3 (Pro)", models[0].displayName)
+        assertEquals("Kimi K3", models[1].displayName)
+        assertEquals(164000, models[0].info.contextLength)
+        // 单条记录不做跨供应商投票：kimi-k3 在 siliconflow 下 tool_call 为 null
+        assertEquals(setOf(ModelAbility.REASONING), models[1].info.abilities)
+        assertEquals(setOf(Modality.TEXT), models[1].info.inputModalities)
+
+        // limit 截断
+        assertEquals(1, catalog.chatModelsOf("siliconflow", limit = 1).size)
+        // 不存在的供应商
+        assertTrue(catalog.chatModelsOf("no-such-provider", limit = 20).isEmpty())
     }
 
     @Test

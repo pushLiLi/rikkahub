@@ -18,6 +18,25 @@ class ModelInfo(
     val contextLength: Int?,
 )
 
+/** 目录供应商预设：models.dev 里一家可接入的 API 提供商 */
+class ProviderPreset(
+    val id: String,
+    val displayName: String,
+    /** 接入地址（api 字段），原生大厂可能为 null，由调用方兜底 */
+    val baseUrl: String?,
+    val docUrl: String?,
+    /** models.dev 标注的协议 SDK 包名，如 @ai-sdk/openai-compatible / @ai-sdk/anthropic */
+    val npmPackage: String?,
+    val chatModelCount: Int,
+)
+
+/** 供应商预设里的单个聊天模型 */
+class PresetModel(
+    val modelId: String,
+    val displayName: String,
+    val info: ModelInfo,
+)
+
 /**
  * models.dev (https://models.dev/api.json) 的模型数据。
  *
@@ -42,11 +61,59 @@ class ModelsDevCatalog private constructor(
             ?: index[name.substringBefore(':')]
     }
 
-    /** 写出只含匹配所需字段的 JSON，格式仍是 models.dev api.json 的子集，可再用 [decode] 读回 */
+    /** 写出精简后的 JSON（模型匹配 + 供应商目录所需字段），格式仍是 models.dev api.json 的子集，可再用 [decode] 读回 */
     @OptIn(ExperimentalSerializationApi::class)
     fun encodeTo(output: OutputStream) {
         json.encodeToStream(providers, output)
     }
+
+    /** 供应商预设目录，只列有可用聊天模型的提供商 */
+    fun providerPresets(): List<ProviderPreset> =
+        providers.mapNotNull { (id, provider) ->
+            val chatModelCount = provider.models.values.count(::isUsableChatModel)
+            if (chatModelCount == 0) return@mapNotNull null
+            ProviderPreset(
+                id = id,
+                displayName = provider.name?.takeIf { it.isNotBlank() } ?: id,
+                baseUrl = provider.api?.takeIf { it.isNotBlank() },
+                docUrl = provider.doc?.takeIf { it.isNotBlank() },
+                npmPackage = provider.npm?.takeIf { it.isNotBlank() },
+                chatModelCount = chatModelCount,
+            )
+        }
+
+    /** 该供应商可预填的聊天模型：非 deprecated、输出含文本，最多 [limit] 个 */
+    fun chatModelsOf(providerId: String, limit: Int): List<PresetModel> {
+        val provider = providers[providerId] ?: return emptyList()
+        return provider.models.entries
+            .filter { (_, model) -> isUsableChatModel(model) }
+            .take(limit)
+            .map { (modelId, model) ->
+                PresetModel(
+                    modelId = modelId,
+                    displayName = model.name?.takeIf { it.isNotBlank() } ?: modelId,
+                    info = model.toModelInfo(),
+                )
+            }
+    }
+
+    private fun isUsableChatModel(model: ModelsDevModel): Boolean =
+        model.status != "deprecated" && "text" in model.modalities.output
+
+    private fun ModelsDevModel.toModelInfo(): ModelInfo = ModelInfo(
+        inputModalities = modalities.input.toModalitySet(),
+        outputModalities = modalities.output.toModalitySet(),
+        abilities = buildSet {
+            if (toolCall) add(ModelAbility.TOOL)
+            if (reasoning) add(ModelAbility.REASONING)
+        },
+        contextLength = limit?.context?.takeIf { it > 0 },
+    )
+
+    private fun List<String>.toModalitySet(): Set<Modality> =
+        mapNotNull { name -> Modality.entries.find { it.name.equals(name, ignoreCase = true) } }
+            .toSet()
+            .ifEmpty { setOf(Modality.TEXT) }
 
     companion object {
         @OptIn(ExperimentalSerializationApi::class)
@@ -65,6 +132,10 @@ private val json = Json {
 
 @Serializable
 private data class ModelsDevProvider(
+    val name: String? = null,
+    val api: String? = null,
+    val doc: String? = null,
+    val npm: String? = null,
     val models: Map<String, ModelsDevModel> = emptyMap()
 ) {
     fun slim() = copy(models = models.mapValues { (_, model) -> model.slim() })
@@ -72,6 +143,8 @@ private data class ModelsDevProvider(
 
 @Serializable
 private data class ModelsDevModel(
+    val name: String? = null,
+    val status: String? = null,
     val modalities: ModelsDevModalities = ModelsDevModalities(),
     @SerialName("tool_call")
     val toolCall: Boolean = false,

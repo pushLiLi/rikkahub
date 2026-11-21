@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,10 +20,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -68,6 +67,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.ui.toast.ToastType
 import kotlin.uuid.Uuid
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.registry.ProviderPreset
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.ArrowRight01
@@ -84,6 +84,10 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.components.ui.QRCodeScannerDialog
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.RECOMMENDED_PROVIDERS
+import me.rerere.rikkahub.data.datastore.createProviderFromPreset
+import me.rerere.rikkahub.data.datastore.isAdded
+import me.rerere.rikkahub.data.datastore.presetBaseUrl
+import me.rerere.rikkahub.data.datastore.usableProviderPresets
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
 import me.rerere.rikkahub.ui.components.ui.ItemAction
@@ -171,9 +175,15 @@ fun SettingProviderPage(vm: SettingVM = koinViewModel()) {
                     // 推荐提供商保留固定 id，读盘后才能按 id 补回不落盘的描述
                     RecommendProviderButton(
                         addedIds = settings.providers.map { it.id }.toSet(),
-                    ) { provider ->
-                        addProvider(provider.copyProvider())
-                    }
+                        addedProviders = settings.providers,
+                        onAdd = { provider ->
+                            addProvider(provider.copyProvider())
+                        },
+                        onAddFromDirectory = { provider ->
+                            addProvider(provider)
+                            navController.navigate(Screen.SettingProviderDetail(providerId = provider.id.toString()))
+                        },
+                    )
                     ImportProviderButton {
                         addProvider(it.copyProvider(Uuid.random()))
                     }
@@ -304,7 +314,9 @@ fun SettingProviderPage(vm: SettingVM = koinViewModel()) {
 @Composable
 private fun RecommendProviderButton(
     addedIds: Set<Uuid>,
-    onAdd: (ProviderSetting) -> Unit
+    addedProviders: List<ProviderSetting>,
+    onAdd: (ProviderSetting) -> Unit,
+    onAddFromDirectory: (ProviderSetting) -> Unit,
 ) {
     val toaster = LocalToaster.current
     var showSheet by remember { mutableStateOf(false) }
@@ -317,6 +329,21 @@ private fun RecommendProviderButton(
     }
 
     if (showSheet) {
+        // 目录数据在 App 启动时就从 models.dev 装好了，这里读一次即可
+        val presets = remember { usableProviderPresets() }
+        var directoryQuery by remember { mutableStateOf("") }
+        val filteredPresets = remember(presets, directoryQuery) {
+            if (directoryQuery.isBlank()) {
+                presets
+            } else {
+                presets.filter { preset ->
+                    preset.displayName.contains(directoryQuery, ignoreCase = true) ||
+                        preset.id.contains(directoryQuery, ignoreCase = true) ||
+                        preset.baseUrl?.contains(directoryQuery, ignoreCase = true) == true
+                }
+            }
+        }
+
         ModalBottomSheet(
             onDismissRequest = { showSheet = false },
             sheetState = rememberBottomSheetState(
@@ -327,7 +354,7 @@ private fun RecommendProviderButton(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
+                    .fillMaxHeight(0.85f)
                     .padding(horizontal = 16.dp)
                     .padding(bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -335,7 +362,6 @@ private fun RecommendProviderButton(
                 Text(
                     text = stringResource(R.string.setting_provider_page_recommend),
                     style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.padding(bottom = 4.dp)
                 )
                 Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
                     RECOMMENDED_PROVIDERS.fastForEachIndexed { index, provider ->
@@ -353,6 +379,122 @@ private fun RecommendProviderButton(
                         )
                     }
                 }
+
+                Text(
+                    text = stringResource(R.string.setting_provider_page_all_providers),
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                if (presets.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.setting_provider_page_directory_not_loaded),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    TextField(
+                        value = directoryQuery,
+                        onValueChange = { directoryQuery = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text(stringResource(R.string.setting_provider_page_search_providers)) },
+                        leadingIcon = {
+                            Icon(HugeIcons.Search01, contentDescription = null)
+                        },
+                        trailingIcon = {
+                            if (directoryQuery.isNotEmpty()) {
+                                IconButton(onClick = { directoryQuery = "" }) {
+                                    Icon(HugeIcons.Cancel01, contentDescription = "Clear")
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        shape = CircleShape,
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceBright,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceBright,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                        ),
+                    )
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+                    ) {
+                        items(filteredPresets, key = { it.id }) { preset ->
+                            DirectoryProviderItem(
+                                preset = preset,
+                                added = preset.isAdded(addedProviders),
+                                onAdd = {
+                                    onAddFromDirectory(createProviderFromPreset(preset))
+                                    showSheet = false
+                                    toaster.show(
+                                        importSuccessMessage,
+                                        type = ToastType.Success
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// models.dev 目录里的供应商：整行可点，副标题显示接入地址和模型数
+@Composable
+private fun DirectoryProviderItem(
+    preset: ProviderPreset,
+    added: Boolean,
+    onAdd: () -> Unit,
+) {
+    val host = presetBaseUrl(preset)?.let { runCatching { Uri.parse(it).host }.getOrNull() }
+    Surface(
+        onClick = onAdd,
+        enabled = !added,
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, top = 12.dp, end = 8.dp, bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AutoAIIcon(
+                name = preset.displayName,
+                modifier = Modifier.size(24.dp)
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = preset.displayName,
+                    style = MaterialTheme.typography.titleMediumEmphasized,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                ProvideTextStyle(MaterialTheme.typography.labelSmall) {
+                    CompositionLocalProvider(LocalContentColor provides LocalContentColor.current.copy(alpha = 0.7f)) {
+                        Text(
+                            text = listOfNotNull(
+                                host,
+                                stringResource(R.string.setting_provider_page_models_count, preset.chatModelCount),
+                            ).joinToString(" · "),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+            if (added) {
+                Icon(HugeIcons.Tick02, contentDescription = "已添加")
+            } else {
+                Icon(HugeIcons.Add01, contentDescription = stringResource(R.string.setting_provider_page_add))
             }
         }
     }
