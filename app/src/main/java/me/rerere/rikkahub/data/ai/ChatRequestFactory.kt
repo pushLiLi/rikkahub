@@ -59,7 +59,11 @@ private const val TAG = "ChatRequestFactory"
  * 一轮对话的请求上下文，按会话固定的配置解析一次。
  *
  * 正常对话和压缩用同一份上下文组装请求，系统提示词、工具定义、参数和 sessionId 都相同，
- * 压缩请求的前缀才能和上一轮对话一致，命中提示词缓存。记忆不在其中：每一步组装请求时单独取最新的。
+ * 压缩请求的前缀才能和上一轮对话一致，命中提示词缓存。
+ *
+ * 记忆以快照 [memoryPrompt] 保存在这里：每轮取一次，工具循环的每一步都用同一份，
+ * 系统提示词在循环内字节不变，前缀缓存才不会被中途爆破。刚写入的记忆通过工具结果可见，
+ * 快照里的内容下一轮才更新；后台整理或用户手动改的记忆同样下一轮生效。
  */
 class ChatTurnContext(
     val settings: Settings,
@@ -70,6 +74,7 @@ class ChatTurnContext(
     val conversationSystemPrompt: String?,
     val workspaceCwd: String?,
     val tools: List<Tool>,
+    val memoryPrompt: String?,
 )
 
 /** 把会话变成发给模型的请求：系统提示词、上下文裁剪、输入输出转换都在这里 */
@@ -120,6 +125,9 @@ class ChatRequestFactory(
                 conversationId = conversation.id,
                 workspaceCwd = conversation.workspaceCwd,
             ),
+            // 记忆快照每轮取一次，循环内不再变化（见类注释）
+            memoryPrompt = assistant.enableMemory.takeIf { it }
+                ?.let { buildMemoryPrompt(memoryRepository.getFiles(assistant.memoryId)) },
         )
     }
 
@@ -239,10 +247,11 @@ class ChatRequestFactory(
                     append(effectiveSystemPrompt)
                 }
 
-                // 记忆：每一步都取最新的，模型刚用记忆工具写入、后台整理或用户手动改过的内容，下一步请求立刻可见
-                if (assistant.enableMemory) {
+                // 记忆快照来自 ChatTurnContext（每轮取一次）：循环内系统提示词字节不变，
+                // 提示词缓存不会被记忆写入或后台整理中途爆破；代价是快照内容下一轮才更新
+                turn.memoryPrompt?.let {
                     appendLine()
-                    append(buildMemoryPrompt(memoryRepository.getFiles(assistant.memoryId)))
+                    append(it)
                 }
                 // 工具prompt
                 turn.tools.forEach { tool ->
