@@ -7,6 +7,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.data.datastore.SettingsStore
@@ -16,6 +17,7 @@ import me.rerere.rikkahub.data.model.SshJumpHostDraft
 import me.rerere.rikkahub.data.model.SshJumpHostSettings
 import me.rerere.rikkahub.data.model.SshWorkspaceDraft
 import me.rerere.rikkahub.data.model.SshWorkspaceSettings
+import me.rerere.rikkahub.data.model.WorkspaceApprovalPolicy
 import me.rerere.rikkahub.data.model.WorkspaceStorageMount
 import me.rerere.rikkahub.data.model.normalizeStorageMountPath
 import me.rerere.rikkahub.utils.JsonInstant
@@ -67,15 +69,61 @@ class WorkspaceRepository(
                 if (workspace.shellStatus != WorkspaceShellStatus.BROKEN.name) {
                     updateShellState(workspace.id, WorkspaceShellStatus.BROKEN.name)
                 }
-                continue
             }
+        }
+        migrateLegacyRootfs(workspaces)
+        // Rootfs 是全局共享的: 系统目录不在时, 已就绪/安装中的状态一起回落;
+        // 系统目录健在时, 遗留的 INSTALLING (上次安装中途退出) 直接视为就绪
+        val rootfsUsable = manager.hasRootfs()
+        workspaces.filter { it.capabilities().rootfs }.forEach { workspace ->
             val statusName = workspace.shellStatus
-            if ((statusName == WorkspaceShellStatus.READY.name || statusName == WorkspaceShellStatus.INSTALLING.name) &&
-                !manager.hasRootfs(workspace.root)
-            ) {
-                Log.w(TAG, "Rootfs missing, resetting shell status: id=${workspace.id}")
-                updateShellState(workspace.id, WorkspaceShellStatus.DISABLED.name)
+            when {
+                !rootfsUsable && (statusName == WorkspaceShellStatus.READY.name ||
+                    statusName == WorkspaceShellStatus.INSTALLING.name) -> {
+                    Log.w(TAG, "Rootfs missing, resetting shell status: id=${workspace.id}")
+                    updateShellState(workspace.id, WorkspaceShellStatus.DISABLED.name)
+                }
+
+                rootfsUsable && statusName == WorkspaceShellStatus.INSTALLING.name -> {
+                    Log.w(TAG, "Rootfs present, fixing stale installing status: id=${workspace.id}")
+                    updateShellState(workspace.id, WorkspaceShellStatus.READY.name)
+                }
             }
+        }
+    }
+
+    /**
+     * 旧版本每个工作区各装一份 Rootfs (workspaces/<id>/linux); 迁移到全局共享目录。
+     * 选 shellStatus 为 READY (或最新更新) 的一份搬过去, 其余副本删除。
+     */
+    private suspend fun migrateLegacyRootfs(workspaces: List<WorkspaceEntity>) {
+        if (manager.linuxDir().exists()) return
+        val local = workspaces.filter { it.capabilities().rootfs }
+        val legacyDirs = local.mapNotNull { workspace ->
+            val dir = File(manager.workspaceDir(workspace.root), "linux")
+            if (dir.isDirectory && WorkspaceManager.isUsableRootfs(dir)) workspace to dir else null
+        }
+        if (legacyDirs.isEmpty()) return
+        val (source, dir) = legacyDirs.maxWithOrNull(
+            compareBy({ it.first.shellStatus != WorkspaceShellStatus.READY.name }, { it.first.updatedAt }),
+        ) ?: return
+        Log.i(TAG, "Migrating legacy rootfs of workspace ${source.id} to shared directory")
+        manager.rootfsTempDir().mkdirs()
+        val target = manager.linuxDir()
+        val moved =
+            dir.renameTo(target) ||
+                runCatching {
+                    dir.copyRecursively(target)
+                    dir.deleteRecursively()
+                    true
+                }.getOrDefault(false)
+        if (moved) {
+            // 其余工作区的旧副本没有价值了, 清掉
+            legacyDirs.filterNot { it.first.id == source.id }.forEach { (_, extra) ->
+                extra.deleteRecursively()
+            }
+        } else {
+            Log.w(TAG, "Failed to migrate legacy rootfs, leaving it in place")
         }
     }
 
@@ -92,6 +140,12 @@ class WorkspaceRepository(
             id = id,
             name = finalName,
             root = id,
+            // 全局 Rootfs 已就绪时, 新建本地工作区开箱即用
+            shellStatus = if (manager.hasRootfs()) {
+                WorkspaceShellStatus.READY.name
+            } else {
+                WorkspaceShellStatus.DISABLED.name
+            },
             createdAt = now,
             updatedAt = now,
             lastAccessAt = null,
@@ -192,9 +246,10 @@ class WorkspaceRepository(
         )
     }
 
-    suspend fun setToolApproval(id: String, toolName: String, needsApproval: Boolean): Boolean {
+    suspend fun setToolApproval(id: String, toolName: String, policy: WorkspaceApprovalPolicy): Boolean {
         val workspace = dao.getById(id) ?: return false
-        val overrides = workspace.toolApprovalOverrides() + (toolName to needsApproval)
+        // 存策略名；旧布尔条目直接被同名新格式覆盖
+        val overrides = workspace.toolApprovalPolicies() + (toolName to policy)
         dao.upsert(
             workspace.copy(
                 toolApprovals = JsonInstant.encodeToString(overrides),
@@ -204,36 +259,98 @@ class WorkspaceRepository(
         return true
     }
 
+    /**
+     * 安装全局共享的 Rootfs: 所有本地工作区共用同一份系统。
+     * 状态随全局系统一起变化 —— 安装中全部标记 INSTALLING, 完成后全部 READY。
+     */
     suspend fun installRootfs(
-        id: String,
         url: String,
         onProgress: (RootfsInstallProgress) -> Unit = {},
+    ): Boolean = installRootfsInternal {
+        rootfsInstaller.install(url, onProgress)
+    }
+
+    /** 从多个镜像依次尝试安装, 全部失败时抛出最后一个错误; 用户取消不重试 */
+    suspend fun installRootfsFromMirrors(
+        urls: List<String>,
+        onProgress: (RootfsInstallProgress) -> Unit = {},
     ): Boolean {
-        val workspace = dao.getById(id) ?: return false
-        require(workspace.capabilities().rootfs) { "Rootfs is not available for ${workspace.type} workspaces" }
-        updateShellState(workspace, WorkspaceShellStatus.INSTALLING.name)
+        require(urls.isNotEmpty()) { "No rootfs mirror url provided" }
+        var lastError: Throwable? = null
+        for (url in urls) {
+            try {
+                return installRootfs(url, onProgress)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                Log.w(TAG, "Rootfs mirror failed: $url", e)
+                lastError = e
+            }
+        }
+        throw lastError ?: IllegalStateException("All rootfs mirrors failed")
+    }
+
+    /** 中止进行中的安装: 断开下载连接; 状态恢复由 [installRootfsInternal] 的取消路径完成 */
+    fun cancelRootfsInstall() {
+        rootfsInstaller.cancel()
+    }
+
+    private suspend fun installRootfsInternal(
+        install: () -> Unit,
+    ): Boolean {
+        val localWorkspaces = dao.getAll().filter { it.capabilities().rootfs }
+        localWorkspaces.forEach { updateShellState(it.id, WorkspaceShellStatus.INSTALLING.name) }
         try {
             // runInterruptible 让协程取消转成线程中断, 打断 install 内阻塞的下载/解压循环
-            runInterruptible(Dispatchers.IO) {
-                rootfsInstaller.install(workspace.root, url, onProgress)
-            }
-            updateShellState(workspace, WorkspaceShellStatus.READY.name)
+            runInterruptible(Dispatchers.IO, block = install)
+            localWorkspaces.forEach { updateShellState(it.id, WorkspaceShellStatus.READY.name) }
             return true
         } catch (e: CancellationException) {
             withContext(NonCancellable) {
-                restoreShellState(workspace)
+                localWorkspaces.forEach { restoreShellState(it) }
             }
             throw e
         } catch (e: InterruptedException) {
             withContext(NonCancellable) {
-                restoreShellState(workspace)
+                localWorkspaces.forEach { restoreShellState(it) }
             }
             throw CancellationException("Rootfs install cancelled").also { it.initCause(e) }
         } catch (e: Throwable) {
-            Log.e(TAG, "installRootfs failed: workspace=${workspace.id}, root=${workspace.root}, url=$url", e)
-            updateShellState(workspace, WorkspaceShellStatus.BROKEN.name)
+            // 取消会先 disconnect 再中断线程, 阻塞读因此抛出的 IO 异常也是取消的一部分
+            if (!currentCoroutineContext().isActive) {
+                withContext(NonCancellable) {
+                    localWorkspaces.forEach { restoreShellState(it) }
+                }
+                throw CancellationException("Rootfs install cancelled").also { it.initCause(e) }
+            }
+            Log.e(TAG, "installRootfs failed", e)
+            localWorkspaces.forEach { updateShellState(it.id, WorkspaceShellStatus.BROKEN.name) }
             throw e
         }
+    }
+
+    /** 卸载全局 Rootfs: 删除系统目录, 所有本地工作区回到未安装状态; 调用方负责先终止终端与后台命令 */
+    suspend fun uninstallRootfs() = withContext(Dispatchers.IO) {
+        rootfsInstaller.uninstall()
+        dao.getAll().filter { it.capabilities().rootfs }.forEach { workspace ->
+            if (workspace.shellStatus != WorkspaceShellStatus.DISABLED.name) {
+                updateShellState(workspace.id, WorkspaceShellStatus.DISABLED.name)
+            }
+        }
+    }
+
+    /** 全局 Rootfs 的发行版名称 (取 /etc/os-release 的 PRETTY_NAME), 未安装时为 null */
+    suspend fun rootfsDistroName(): String? = withContext(Dispatchers.IO) {
+        val osRelease = File(manager.linuxDir(), "etc/os-release").takeIf { it.isFile }?.readText()
+            ?: File(manager.linuxDir(), "usr/lib/os-release").takeIf { it.isFile }?.readText()
+            ?: return@withContext null
+        osRelease.lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.startsWith("PRETTY_NAME=") }
+            ?.removePrefix("PRETTY_NAME=")
+            ?.trim()
+            ?.removeSurrounding("\"")
+            ?.takeIf { it.isNotBlank() }
     }
 
     /** 工作区在执行环境内的目录约定, 工作区不存在时返回 null */
@@ -571,7 +688,14 @@ class WorkspaceRepository(
         }
 
     private suspend fun restoreShellState(workspace: WorkspaceEntity) {
-        updateShellState(workspace.id, workspace.shellStatus)
+        // 快照本身是 INSTALLING (上次安装中途退出留下的死状态) 时按实际系统状态恢复,
+        // 否则取消一次安装后永远卡在"正在安装"
+        val restored = if (workspace.shellStatus == WorkspaceShellStatus.INSTALLING.name) {
+            if (manager.hasRootfs()) WorkspaceShellStatus.READY.name else WorkspaceShellStatus.DISABLED.name
+        } else {
+            workspace.shellStatus
+        }
+        updateShellState(workspace.id, restored)
     }
 
     private suspend fun updateShellState(

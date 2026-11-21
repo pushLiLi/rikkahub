@@ -50,12 +50,17 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -67,6 +72,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -108,8 +114,9 @@ import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.hugeicons.stroke.Wrench01
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.ai.tools.WorkspaceFileWriteToolNames
-import me.rerere.rikkahub.data.ai.tools.resolveWorkspaceToolApproval
+import me.rerere.rikkahub.data.ai.tools.resolveWorkspaceToolPolicy
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
+import me.rerere.rikkahub.data.model.WorkspaceApprovalPolicy
 import me.rerere.rikkahub.data.model.WorkspaceStorageMount
 import androidx.compose.ui.res.stringResource
 import me.rerere.rikkahub.R
@@ -162,6 +169,7 @@ fun WorkspaceDetailPage(id: String) {
     val pagerState = rememberPagerState { WorkspaceDetailTab.entries.size }
     var deleteTarget by remember { mutableStateOf<WorkspaceFileEntry?>(null) }
     var showInstallDialog by remember { mutableStateOf(false) }
+    var showUninstallConfirm by remember { mutableStateOf(false) }
     var previewImageUri by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val filePicker = rememberLauncherForActivityResult(
@@ -254,7 +262,10 @@ fun WorkspaceDetailPage(id: String) {
                     WorkspaceDetailTab.BASIC -> WorkspaceBasicPage(
                         workspace = state.workspace,
                         installProgress = installProgress,
+                        rootfsDistro = state.rootfsDistro,
                         onInstallRootfs = { showInstallDialog = true },
+                        onCancelInstallRootfs = vm::cancelInstallRootfs,
+                        onUninstallRootfs = { showUninstallConfirm = true },
                         onToolApprovalChange = vm::setToolApproval,
                         onShellCompatibilityModeChange = vm::setShellCompatibilityMode,
                         onStorageMountsChange = vm::setStorageMounts,
@@ -352,11 +363,27 @@ fun WorkspaceDetailPage(id: String) {
             InstallRootfsDialog(
                 workspace = workspace,
                 onDismiss = { showInstallDialog = false },
-                onConfirm = { url ->
-                    vm.installRootfs(url)
+                onConfirm = { source ->
+                    vm.installRootfs(source)
                     showInstallDialog = false
                 },
             )
+        }
+    }
+
+    if (showUninstallConfirm) {
+        RikkaConfirmDialog(
+            show = true,
+            title = stringResource(R.string.workspace_detail_rootfs_uninstall),
+            confirmText = stringResource(R.string.common_delete),
+            dismissText = stringResource(R.string.common_cancel),
+            onConfirm = {
+                vm.uninstallRootfs()
+                showUninstallConfirm = false
+            },
+            onDismiss = { showUninstallConfirm = false },
+        ) {
+            Text(stringResource(R.string.workspace_detail_rootfs_uninstall_confirm))
         }
     }
 
@@ -414,8 +441,11 @@ fun WorkspaceDetailPage(id: String) {
 private fun WorkspaceBasicPage(
     workspace: WorkspaceEntity?,
     installProgress: RootfsInstallProgress?,
+    rootfsDistro: String?,
     onInstallRootfs: () -> Unit,
-    onToolApprovalChange: (String, Boolean) -> Unit,
+    onCancelInstallRootfs: () -> Unit,
+    onUninstallRootfs: () -> Unit,
+    onToolApprovalChange: (String, WorkspaceApprovalPolicy) -> Unit,
     onShellCompatibilityModeChange: (Boolean) -> Unit,
     onStorageMountsChange: (List<WorkspaceStorageMount>) -> Unit,
     onEditSsh: () -> Unit,
@@ -425,11 +455,6 @@ private fun WorkspaceBasicPage(
     val hasRootfs = workspace?.capabilities()?.rootfs ?: true
     val installing = installProgress != null || shellStatus == WorkspaceShellStatus.INSTALLING.name
     val rootfsReady = shellStatus == WorkspaceShellStatus.READY.name
-    val installButtonText = when {
-        installing -> stringResource(R.string.workspace_detail_installing)
-        rootfsReady -> stringResource(R.string.workspace_detail_reinstall_rootfs)
-        else -> stringResource(R.string.workspace_detail_install_rootfs)
-    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -468,24 +493,70 @@ private fun WorkspaceBasicPage(
                     title = { Text(stringResource(R.string.workspace_detail_enable_shell)) },
                 ) {
                     formItem(
-                        headlineContent = { Text(stringResource(R.string.workspace_detail_area_rootfs)) },
-                        supportingContent = { Text(stringResource(R.string.workspace_detail_enable_shell_desc)) },
+                        headlineContent = {
+                            Text(
+                                if (rootfsDistro != null) {
+                                    stringResource(R.string.workspace_detail_rootfs_installed_as, rootfsDistro)
+                                } else {
+                                    stringResource(R.string.workspace_detail_area_rootfs)
+                                }
+                            )
+                        },
+                        supportingContent = {
+                            Text(stringResource(R.string.workspace_detail_rootfs_shared_desc))
+                        },
                         leadingContent = { CardGroupIcon(HugeIcons.Bash) },
                     ) {
-                        Button(
-                            onClick = onInstallRootfs,
-                            enabled = workspace != null && !installing,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Icon(
-                                imageVector = HugeIcons.Bash,
-                                contentDescription = null,
-                                modifier = Modifier.size(ButtonDefaults.IconSize),
-                            )
-                            Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-                            Text(installButtonText)
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // 安装中: 提供取消按钮, 卡住的下载可立即中断
+                            if (installing) {
+                                OutlinedButton(
+                                    onClick = onCancelInstallRootfs,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Icon(
+                                        imageVector = HugeIcons.Cancel01,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(ButtonDefaults.IconSize),
+                                    )
+                                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                                    Text(stringResource(R.string.workspace_detail_rootfs_cancel_install))
+                                }
+                            } else if (rootfsReady) {
+                                // 已安装: 唯一入口是卸载; 换系统必须先卸载, 不再提供原地重装
+                                OutlinedButton(
+                                    onClick = onUninstallRootfs,
+                                    enabled = workspace != null,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = MaterialTheme.colorScheme.error,
+                                    ),
+                                ) {
+                                    Icon(
+                                        imageVector = HugeIcons.Delete01,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(ButtonDefaults.IconSize),
+                                    )
+                                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                                    Text(stringResource(R.string.workspace_detail_rootfs_uninstall))
+                                }
+                            } else {
+                                Button(
+                                    onClick = onInstallRootfs,
+                                    enabled = workspace != null,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Icon(
+                                        imageVector = HugeIcons.Bash,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(ButtonDefaults.IconSize),
+                                    )
+                                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                                    Text(stringResource(R.string.workspace_detail_install_rootfs))
+                                }
+                            }
+                            installProgress?.let { RootfsProgress(it) }
                         }
-                        installProgress?.let { RootfsProgress(it) }
                     }
                     switchItem(
                         checked = workspace?.shellCompatibilityMode ?: false,
@@ -588,13 +659,14 @@ private fun ShellStatusBadge(status: String?) {
 @Composable
 private fun WorkspaceToolApprovalCard(
     workspace: WorkspaceEntity?,
-    onToolApprovalChange: (String, Boolean) -> Unit,
+    onToolApprovalChange: (String, WorkspaceApprovalPolicy) -> Unit,
 ) {
-    val overrides = workspace?.toolApprovalOverrides().orEmpty()
+    val policies = workspace?.toolApprovalPolicies().orEmpty()
     val fileWriteTools = workspace?.capabilities()?.fileWriteTools ?: true
     val tools = workspaceToolApprovalItems().filter { (toolName) ->
         fileWriteTools || toolName !in WorkspaceFileWriteToolNames
     }
+    var policyTarget by remember { mutableStateOf<String?>(null) }
 
     CardGroup(
         title = {
@@ -609,10 +681,11 @@ private fun WorkspaceToolApprovalCard(
         },
     ) {
         tools.forEach { (toolName, label, icon) ->
-            switchItem(
-                checked = resolveWorkspaceToolApproval(toolName, overrides),
-                onCheckedChange = { onToolApprovalChange(toolName, it) },
-                enabled = workspace != null,
+            val policy = resolveWorkspaceToolPolicy(toolName, policies)
+            item(
+                onClick = { policyTarget = toolName },
+                leadingContent = { CardGroupIcon(icon) },
+                headlineContent = { Text(label) },
                 supportingContent = {
                     Text(
                         text = toolName,
@@ -620,12 +693,36 @@ private fun WorkspaceToolApprovalCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 },
-                leadingContent = { CardGroupIcon(icon) },
-                headlineContent = { Text(label) },
+                trailingContent = {
+                    Text(
+                        text = stringResource(policy.labelRes()),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                },
             )
         }
     }
+
+    policyTarget?.let { toolName ->
+        WorkspaceApprovalPolicySheet(
+            current = resolveWorkspaceToolPolicy(toolName, policies),
+            onDismiss = { policyTarget = null },
+            onSelect = {
+                onToolApprovalChange(toolName, it)
+                policyTarget = null
+            },
+        )
+    }
 }
+
+@Composable
+private fun WorkspaceApprovalPolicy.labelRes(): Int =
+    when (this) {
+        WorkspaceApprovalPolicy.SMART -> R.string.workspace_detail_approval_policy_smart
+        WorkspaceApprovalPolicy.ALWAYS_ALLOW -> R.string.workspace_detail_approval_policy_allow
+        WorkspaceApprovalPolicy.ALWAYS_ASK -> R.string.workspace_detail_approval_policy_ask
+    }
 
 @Composable
 private fun workspaceToolApprovalItems() = listOf(
@@ -634,6 +731,77 @@ private fun workspaceToolApprovalItems() = listOf(
     Triple("workspace_edit_file", stringResource(R.string.workspace_detail_tool_edit_file), HugeIcons.FileEdit),
     Triple("workspace_shell", stringResource(R.string.workspace_detail_tool_shell), HugeIcons.ComputerTerminal01),
 )
+
+/** 三档审批策略选择 */
+@Composable
+private fun WorkspaceApprovalPolicySheet(
+    current: WorkspaceApprovalPolicy,
+    onDismiss: () -> Unit,
+    onSelect: (WorkspaceApprovalPolicy) -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberBottomSheetState(
+            initialValue = SheetValue.Hidden,
+            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.workspace_detail_tool_approval),
+                style = MaterialTheme.typography.titleMediumEmphasized,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+            WorkspaceApprovalPolicy.entries.forEach { policy ->
+                Surface(
+                    onClick = { onSelect(policy) },
+                    shape = MaterialTheme.shapes.large,
+                    color = if (policy == current) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerLow
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        RadioButton(selected = policy == current, onClick = { onSelect(policy) })
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = stringResource(policy.labelRes()),
+                                style = MaterialTheme.typography.titleSmallEmphasized,
+                            )
+                            Text(
+                                text = stringResource(policy.descriptionRes()),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceApprovalPolicy.descriptionRes(): Int =
+    when (this) {
+        WorkspaceApprovalPolicy.SMART -> R.string.workspace_detail_approval_policy_smart_desc
+        WorkspaceApprovalPolicy.ALWAYS_ALLOW -> R.string.workspace_detail_approval_policy_allow_desc
+        WorkspaceApprovalPolicy.ALWAYS_ASK -> R.string.workspace_detail_approval_policy_ask_desc
+    }
 
 @Composable
 private fun RootfsProgress(progress: RootfsInstallProgress) {
@@ -674,37 +842,109 @@ private fun RootfsProgress(progress: RootfsInstallProgress) {
     }
 }
 
+/** Ubuntu 基础镜像的下载地址: 国内镜像优先, 官方源兜底 */
+private val UBUNTU_ROOTFS_MIRRORS = listOf(
+    "https://mirrors.tuna.tsinghua.edu.cn/ubuntu-cdimage/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-arm64.tar.gz",
+    "https://mirrors.ustc.edu.cn/ubuntu-cdimage/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-arm64.tar.gz",
+    "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-arm64.tar.gz",
+)
+
+private class RootfsPresetOption(
+    @param:StringRes val labelRes: Int,
+    @param:StringRes val descriptionRes: Int,
+    /** null 表示自定义 URL */
+    val source: WorkspaceDetailVM.RootfsInstallSource?,
+)
+
+@Composable
+private fun rootfsPresetOptions() = listOf(
+    RootfsPresetOption(
+        R.string.workspace_detail_rootfs_preset_ubuntu,
+        R.string.workspace_detail_rootfs_preset_ubuntu_desc,
+        WorkspaceDetailVM.RootfsInstallSource.Mirrors(UBUNTU_ROOTFS_MIRRORS),
+    ),
+    RootfsPresetOption(
+        R.string.workspace_detail_rootfs_preset_custom,
+        R.string.workspace_detail_rootfs_preset_custom_desc,
+        null,
+    ),
+)
+
 @Composable
 private fun InstallRootfsDialog(
     workspace: WorkspaceEntity,
     onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
+    onConfirm: (WorkspaceDetailVM.RootfsInstallSource) -> Unit,
 ) {
-    var url by rememberSaveable(workspace.id) { mutableStateOf(DEFAULT_ROOTFS_URL) }
+    val options = rootfsPresetOptions()
+    var selected by rememberSaveable(workspace.id) { mutableStateOf(0) }
+    var customUrl by rememberSaveable(workspace.id) { mutableStateOf("") }
+    val selectedSource = options.getOrNull(selected)?.source
+    val canConfirm = selectedSource != null || customUrl.isNotBlank()
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.workspace_detail_install_rootfs)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = stringResource(R.string.workspace_detail_install_rootfs_desc, workspace.name),
+                    text = stringResource(R.string.workspace_detail_install_rootfs_desc),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(R.string.workspace_detail_download_url)) },
-                    maxLines = 5,
-                )
+                options.forEachIndexed { index, option ->
+                    val isSelected = index == selected
+                    Surface(
+                        onClick = { selected = index },
+                        shape = MaterialTheme.shapes.large,
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        } else {
+                            Color.Transparent
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = isSelected, onClick = { selected = index })
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = stringResource(option.labelRes),
+                                    style = MaterialTheme.typography.titleSmallEmphasized,
+                                )
+                                Text(
+                                    text = stringResource(option.descriptionRes),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+                if (selectedSource == null) {
+                    OutlinedTextField(
+                        value = customUrl,
+                        onValueChange = { customUrl = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(stringResource(R.string.workspace_detail_download_url)) },
+                        singleLine = false,
+                        maxLines = 5,
+                    )
+                }
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(url.trim()) },
-                enabled = url.isNotBlank(),
+                onClick = {
+                    onConfirm(
+                        selectedSource ?: WorkspaceDetailVM.RootfsInstallSource.Custom(customUrl.trim()),
+                    )
+                },
+                enabled = canConfirm,
             ) {
                 Text(stringResource(R.string.common_install))
             }
@@ -1219,6 +1459,3 @@ internal fun String.toShellStatusLabel(): String = when (this) {
     WorkspaceShellStatus.BROKEN.name -> stringResource(R.string.workspace_detail_shell_broken)
     else -> lowercase()
 }
-
-private const val DEFAULT_ROOTFS_URL =
-    "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-arm64.tar.gz"

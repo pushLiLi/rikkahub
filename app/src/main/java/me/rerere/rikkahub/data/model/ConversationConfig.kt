@@ -25,6 +25,7 @@ data class ConversationConfig(
     val builtInSearch: Boolean = false, // 模型内置搜索，覆盖模型自身的开关
     val mcpServers: Set<Uuid> = emptySet(),
     val workspaceId: Uuid? = null,
+    val workspaceAgentMode: WorkspaceAgentMode = WorkspaceAgentMode.BUILD,
     val enabledSkills: Set<String> = emptySet(),
 )
 
@@ -35,6 +36,7 @@ private fun Assistant.toConversationConfig() = ConversationConfig(
     enableWebSearch = enableWebSearch,
     mcpServers = mcpServers,
     workspaceId = workspaceId,
+    workspaceAgentMode = workspaceAgentMode,
     enabledSkills = enabledSkills,
 )
 
@@ -44,6 +46,7 @@ private fun Assistant.withConversationConfig(config: ConversationConfig) = copy(
     enableWebSearch = config.enableWebSearch,
     mcpServers = config.mcpServers,
     workspaceId = config.workspaceId,
+    workspaceAgentMode = config.workspaceAgentMode,
     enabledSkills = config.enabledSkills,
 )
 
@@ -90,6 +93,75 @@ fun Assistant.withoutConversationFields(conversation: Conversation, stored: Assi
             lorebookIds = stored.lorebookIds,
         )
     }
+
+/**
+ * 助手设置页修改了会话跟随的字段后，把这次的变化同步到已开始的会话上。
+ *
+ * 集合类配置（MCP、模式注入、Lorebook、技能）按本次增减同步：助手这次勾选或取消的项同样作用到会话，
+ * 会话里其余已选状态保留；单值类配置只在助手本次改动了它时跟随，换模型和工作区的处理与首次固定相同。
+ * 会话还没开始（[Conversation.config] 为 null）时本来就跟随助手，原样返回。
+ */
+fun Conversation.withStoredAssistantDiff(old: Assistant, new: Assistant, settings: Settings): Conversation {
+    val config = config ?: return this
+    var nextConfig = config
+    var nextModeInjectionIds = modeInjectionIds
+    var nextLorebookIds = lorebookIds
+    var nextWorkspaceCwd = workspaceCwd
+
+    if (old.mcpServers != new.mcpServers) {
+        nextConfig = nextConfig.copy(
+            // 会话里与助手重合的跟随助手换掉，会话自己勾的（不在旧助手里）保留
+            mcpServers = ((nextConfig.mcpServers - old.mcpServers) + new.mcpServers)
+                .filterTo(mutableSetOf()) { id -> settings.mcpServers.any { it.id == id } }
+        )
+    }
+    if (old.modeInjectionIds != new.modeInjectionIds) {
+        nextModeInjectionIds = ((nextModeInjectionIds - old.modeInjectionIds) + new.modeInjectionIds)
+            .filterTo(mutableSetOf()) { id -> settings.modeInjections.any { it.id == id } }
+    }
+    if (old.lorebookIds != new.lorebookIds) {
+        nextLorebookIds = ((nextLorebookIds - old.lorebookIds) + new.lorebookIds)
+            .filterTo(mutableSetOf()) { id -> settings.lorebooks.any { it.id == id } }
+    }
+    if (old.enabledSkills != new.enabledSkills) {
+        nextConfig = nextConfig.copy(
+            enabledSkills = (nextConfig.enabledSkills - old.enabledSkills) + new.enabledSkills
+        )
+    }
+    if (old.chatModelId != new.chatModelId) {
+        nextConfig = nextConfig.copy(
+            chatModelId = new.chatModelId,
+            // 内置搜索是模型自身的能力，换模型后跟随新模型的开关
+            builtInSearch = settings.findModelById(new.chatModelId)?.tools?.contains(BuiltInTools.Search) == true,
+        )
+    }
+    if (old.reasoningLevel != new.reasoningLevel) {
+        nextConfig = nextConfig.copy(reasoningLevel = new.reasoningLevel)
+    }
+    if (old.enableWebSearch != new.enableWebSearch) {
+        nextConfig = nextConfig.copy(enableWebSearch = new.enableWebSearch)
+    }
+    if (old.workspaceId != new.workspaceId) {
+        nextConfig = nextConfig.copy(workspaceId = new.workspaceId)
+        // 工作目录属于原来的工作区，换工作区后失效
+        nextWorkspaceCwd = null
+    }
+    if (old.workspaceAgentMode != new.workspaceAgentMode) {
+        nextConfig = nextConfig.copy(workspaceAgentMode = new.workspaceAgentMode)
+    }
+
+    if (nextConfig == config && nextModeInjectionIds == modeInjectionIds &&
+        nextLorebookIds == lorebookIds && nextWorkspaceCwd == workspaceCwd
+    ) {
+        return this
+    }
+    return copy(
+        config = nextConfig,
+        modeInjectionIds = nextModeInjectionIds,
+        lorebookIds = nextLorebookIds,
+        workspaceCwd = nextWorkspaceCwd,
+    )
+}
 
 /** 会话所属助手自身的设置，不含会话上固定的配置；助手被删除后退回当前助手。 */
 fun Settings.getStoredAssistantOf(conversation: Conversation): Assistant =

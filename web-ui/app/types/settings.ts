@@ -69,6 +69,8 @@ export interface AssistantProfile {
   modeInjectionIds?: string[];
   lorebookIds?: string[];
   allowConversationSystemPrompt?: boolean;
+  /** 工作区执行模式 (BUILD / PLAN) */
+  workspaceAgentMode?: string;
   name: string;
   avatar?: AssistantAvatar;
   useAssistantAvatar?: boolean;

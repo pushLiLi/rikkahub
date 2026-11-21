@@ -304,6 +304,17 @@ fun ChatInput(
                                     modifier = Modifier,
                                 )
 
+                                // Workspace agent mode (Build / Plan)
+                                if (assistant.workspaceId != null) {
+                                    WorkspaceModeButton(
+                                        mode = assistant.workspaceAgentMode,
+                                        onUpdateMode = {
+                                            onUpdateAssistant(assistant.copy(workspaceAgentMode = it))
+                                        },
+                                        onlyIcon = true,
+                                    )
+                                }
+
                                 // Reasoning
                                 if (chatModel?.abilities?.contains(ModelAbility.REASONING) == true) {
                                     ReasoningButton(

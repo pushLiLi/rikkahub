@@ -74,9 +74,9 @@ class RootfsPathResolutionTest {
         assertEquals(12L, manager.rootfsFileSize(root, "/storage/emulated/0/Documents/a.txt", extra))
         assertTrue(manager.layout(extra).isWritable("/storage/emulated/0/Documents/a.txt"))
 
-        // 不传工作区挂载时落到 Rootfs 目录, 其他工作区看不到
+        // 不传工作区挂载时落到共享的 Rootfs 目录
         assertEquals(
-            manager.linuxDir(root),
+            manager.linuxDir(),
             manager.resolveRootfsPath(root, "/storage/emulated/0/Documents/a.txt").rootDir
         )
         assertTrue(!manager.layout().isWritable("/storage/emulated/0/Documents/a.txt"))
@@ -99,8 +99,8 @@ class RootfsPathResolutionTest {
     @Test
     fun unknownAbsolutePathFallsBackToRootfsInterior() {
         manager = createManager()
-        File(manager.linuxDir(root), "etc").mkdirs()
-        File(manager.linuxDir(root), "etc/hostname").writeText("rikkahub\n")
+        File(manager.linuxDir(), "etc").mkdirs()
+        File(manager.linuxDir(), "etc/hostname").writeText("rikkahub\n")
 
         val buffer = ByteArrayOutputStream()
         manager.exportRootfsFile(root, "/etc/hostname", buffer)

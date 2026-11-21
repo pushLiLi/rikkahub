@@ -1,5 +1,6 @@
 package me.rerere.workspace
 
+import org.tukaani.xz.XZInputStream
 import java.io.BufferedInputStream
 import java.io.EOFException
 import java.io.File
@@ -10,24 +11,34 @@ import java.net.URL
 import java.nio.file.Files
 import java.util.Locale
 import java.util.zip.GZIPInputStream
-import org.tukaani.xz.XZInputStream
 
 class RootfsInstaller(
     private val manager: WorkspaceManager,
     private val patcher: RootfsPatcher = RootfsPatcher(),
 ) {
+    /** 当前下载使用的连接; [cancel] 主动断开, 让阻塞中的 connect/read 立即失败 */
+    @Volatile
+    private var activeConnection: HttpURLConnection? = null
+
+    /** 立即中止进行中的安装: 断开网络连接; 解压/拷贝循环由线程中断配合退出 */
+    fun cancel() {
+        activeConnection?.disconnect()
+    }
+
+    /**
+     * 下载并安装全局共享的 Rootfs。所有本地工作区共用同一份系统环境,
+     * 因此这里没有工作区参数; 已有系统时先整体替换。
+     */
     fun install(
-        root: String,
         url: String,
         onProgress: (RootfsInstallProgress) -> Unit = {},
     ) {
         require(url.isNotBlank()) { "Rootfs download url is required" }
-        manager.ensureWorkspace(root)
         val format = ArchiveFormat.fromUrl(url)
-        val tempDir = manager.tempDir(root)
+        val tempDir = manager.rootfsTempDir()
         val archive = File(tempDir, "rootfs.${format.extension}")
         val stagingDir = File(tempDir, "rootfs-staging")
-        val linuxDir = manager.linuxDir(root)
+        val linuxDir = manager.linuxDir()
 
         try {
             stagingDir.deleteRecursively()
@@ -46,6 +57,12 @@ class RootfsInstaller(
         }
     }
 
+    /** 卸载全局 Rootfs: 删除系统目录与安装残留的临时文件 */
+    fun uninstall() {
+        manager.linuxDir().deleteRecursively()
+        manager.rootfsTempDir().deleteRecursively()
+    }
+
     private fun download(
         url: String,
         target: File,
@@ -55,46 +72,61 @@ class RootfsInstaller(
         connection.connectTimeout = CONNECT_TIMEOUT_MS
         connection.readTimeout = READ_TIMEOUT_MS
         connection.instanceFollowRedirects = true
+        activeConnection = connection
         try {
             val code = connection.responseCode
             require(code in 200..299) { "Rootfs download failed: HTTP $code" }
             val totalBytes = connection.contentLengthLong.takeIf { it > 0 }
-            target.parentFile?.mkdirs()
             connection.inputStream.use { input ->
-                target.outputStream().use { output ->
-                    val buffer = ByteArray(BUFFER_SIZE)
-                    var bytesRead = 0L
-                    var lastReportBytes = 0L
-                    while (true) {
-                        checkInterrupted()
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        output.write(buffer, 0, read)
-                        bytesRead += read
-                        if (bytesRead - lastReportBytes >= PROGRESS_STEP_BYTES || bytesRead == totalBytes) {
-                            lastReportBytes = bytesRead
-                            onProgress(
-                                RootfsInstallProgress(
-                                    stage = RootfsInstallStage.DOWNLOADING,
-                                    bytesRead = bytesRead,
-                                    totalBytes = totalBytes,
-                                )
-                            )
-                        }
-                    }
-                    if (bytesRead == 0L) {
+                copyTo(input, totalBytes, target, onProgress)
+            }
+        } finally {
+            activeConnection = null
+            connection.disconnect()
+        }
+    }
+
+    private fun copyTo(
+        input: InputStream,
+        totalBytes: Long?,
+        target: File,
+        onProgress: (RootfsInstallProgress) -> Unit,
+    ) {
+        target.parentFile?.mkdirs()
+        input.use { source ->
+            target.outputStream().use { output ->
+                val buffer = ByteArray(BUFFER_SIZE)
+                var bytesRead = 0L
+                var lastReportBytes = 0L
+                while (true) {
+                    checkInterrupted()
+                    val read = source.read(buffer)
+                    if (read < 0) break
+                    output.write(buffer, 0, read)
+                    bytesRead += read
+                    if (bytesRead - lastReportBytes >= PROGRESS_STEP_BYTES || bytesRead == totalBytes) {
+                        lastReportBytes = bytesRead
                         onProgress(
                             RootfsInstallProgress(
                                 stage = RootfsInstallStage.DOWNLOADING,
-                                bytesRead = 0,
+                                bytesRead = bytesRead,
                                 totalBytes = totalBytes,
                             )
                         )
                     }
                 }
+                // 拿不到总大小或一个进度步长都没到时, 至少汇报一次最终字节数
+                if (lastReportBytes == 0L || bytesRead == 0L) {
+                    onProgress(
+                        RootfsInstallProgress(
+                            stage = RootfsInstallStage.DOWNLOADING,
+                            bytesRead = bytesRead,
+                            totalBytes = totalBytes,
+                        )
+                    )
+                }
+                require(bytesRead > 0) { "Rootfs download is empty" }
             }
-        } finally {
-            connection.disconnect()
         }
     }
 
@@ -412,7 +444,9 @@ class RootfsInstaller(
         private const val TAR_BLOCK_SIZE = 512
         private const val BUFFER_SIZE = 64 * 1024
         private const val PROGRESS_STEP_BYTES = 512 * 1024
-        private const val CONNECT_TIMEOUT_MS = 30_000
-        private const val READ_TIMEOUT_MS = 60_000
+
+        // 连接/读取超时收紧: 国内直连海外镜像慢时尽快失败, 调用方可换镜像重试
+        private const val CONNECT_TIMEOUT_MS = 10_000
+        private const val READ_TIMEOUT_MS = 15_000
     }
 }

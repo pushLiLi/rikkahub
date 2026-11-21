@@ -12,6 +12,7 @@ import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.files.FileFolders
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.WorkspaceAgentMode
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
@@ -54,8 +55,12 @@ class ChatToolFactory(
         conversationId: Uuid,
         workspaceCwd: String? = null,
     ): List<Tool> {
-        val workspaceTools =
-            createWorkspaceToolsIfReady(assistant.workspaceId?.toString(), workspaceCwd, conversationId)
+        val workspaceTools = createWorkspaceToolsIfReady(
+            workspaceId = assistant.workspaceId?.toString(),
+            cwd = workspaceCwd,
+            conversationId = conversationId,
+            agentMode = assistant.workspaceAgentMode,
+        )
         val tools = buildList {
             if (assistant.enableMemory) {
                 addAll(buildMemoryTools(memoryRepository, assistant.memoryId))
@@ -139,6 +144,7 @@ class ChatToolFactory(
         workspaceId: String?,
         cwd: String?,
         conversationId: Uuid,
+        agentMode: WorkspaceAgentMode,
     ): List<Tool> {
         if (workspaceId.isNullOrBlank()) return emptyList()
         val workspace = workspaceRepository.getById(workspaceId) ?: return emptyList()
@@ -149,6 +155,13 @@ class ChatToolFactory(
             )
             return emptyList()
         }
-        return createWorkspaceTools(workspaceId, workspaceRepository, cwd, conversationId, backgroundShellManager)
+        return createWorkspaceTools(
+            workspaceId = workspaceId,
+            workspaceRepository = workspaceRepository,
+            cwd = cwd,
+            conversationId = conversationId,
+            backgroundShellManager = backgroundShellManager,
+            agentMode = agentMode,
+        )
     }
 }

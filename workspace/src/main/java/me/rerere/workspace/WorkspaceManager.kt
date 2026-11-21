@@ -14,6 +14,7 @@ class WorkspaceManager(
     private val bindMounts: List<WorkspaceBindMount> = emptyList(),
 ) {
     private val fileSystem = WorkspaceFileSystem(config)
+    private val rootfsDir = File(baseDir, GLOBAL_ROOTFS_DIR)
 
     init {
         baseDir.mkdirs()
@@ -57,7 +58,6 @@ class WorkspaceManager(
     fun ensureWorkspace(root: String): File {
         val dir = workspaceDir(root)
         filesDir(root).mkdirs()
-        linuxDir(root).mkdirs()
         tempDir(root).mkdirs()
         return dir
     }
@@ -69,13 +69,23 @@ class WorkspaceManager(
 
     fun filesDir(root: String): File = File(workspaceDir(root), FILES_DIR)
 
-    fun linuxDir(root: String): File = File(workspaceDir(root), LINUX_DIR)
+    /**
+     * 全局共享的 Rootfs 系统目录。
+     *
+     * 所有本地工作区共用同一份 Linux 环境: 系统和装过的软件包只存在一份,
+     * 各工作区只有自己的 files/ 目录 (挂载为 Rootfs 内的 /workspace) 是独立的。
+     * 换装系统必须先卸载 ([RootfsInstaller.uninstall]), 再重新安装。
+     */
+    fun linuxDir(): File = File(rootfsDir, LINUX_DIR)
+
+    /** 安装/卸载过程中的临时文件目录 */
+    fun rootfsTempDir(): File = File(rootfsDir, TEMP_DIR)
 
     fun tempDir(root: String): File = File(workspaceDir(root), TEMP_DIR)
 
-    fun hasRootfs(root: String): Boolean = isUsableRootfs(linuxDir(root))
+    fun hasRootfs(): Boolean = isUsableRootfs(linuxDir())
 
-    fun rootfsShell(root: String): String = rootfsShell(linuxDir(root))
+    fun rootfsShell(): String = rootfsShell(linuxDir())
 
     fun deleteWorkspace(root: String): Boolean = workspaceDir(root).deleteRecursively()
 
@@ -182,7 +192,7 @@ class WorkspaceManager(
             error("$it is a kernel filesystem and cannot be read as a file, use workspace_shell instead")
         }
 
-        return RootfsLocation(linuxDir(root), trimmed.trimStart('/'))
+        return RootfsLocation(linuxDir(), trimmed.trimStart('/'))
     }
 
     fun rootfsFileSize(root: String, path: String, extraMounts: List<WorkspaceBindMount> = emptyList()): Long =
@@ -278,7 +288,7 @@ class WorkspaceManager(
             command = command,
             cwd = cwd,
             filesDir = filesDir(root),
-            linuxDir = linuxDir(root),
+            linuxDir = linuxDir(),
             tempDir = tempDir(root),
             workingDir = workingDir,
             timeoutMillis = timeoutMillis,
@@ -292,7 +302,7 @@ class WorkspaceManager(
     fun prepareTerminal(root: String, nameservers: List<String>) {
         ensureWorkspace(root)
         bindMounts.forEach { it.source.mkdirs() }
-        RootfsPatcher().patch(linuxDir(root), RootfsPatchOptions(nameservers = nameservers))
+        RootfsPatcher().patch(linuxDir(), RootfsPatchOptions(nameservers = nameservers))
     }
 
     fun terminalLaunch(
@@ -304,7 +314,7 @@ class WorkspaceManager(
         return shellRunner.terminalLaunch(
             WorkspaceTerminalContext(
                 filesDir = filesDir(root),
-                linuxDir = linuxDir(root),
+                linuxDir = linuxDir(),
                 tempDir = tempDir(root),
                 bindMounts = mountsOf(extraMounts),
                 shellCompatibilityMode = shellCompatibilityMode,
@@ -320,19 +330,21 @@ class WorkspaceManager(
 
     private fun areaDir(root: String, area: WorkspaceStorageArea): File = when (area) {
         WorkspaceStorageArea.FILES -> filesDir(root)
-        WorkspaceStorageArea.LINUX -> linuxDir(root)
+        WorkspaceStorageArea.LINUX -> linuxDir()
     }
 
     fun cleanupAllTempDirs() {
         val roots = baseDir.listFiles()?.filter { it.isDirectory } ?: return
         for (dir in roots) {
             val root = dir.name
+            if (root == GLOBAL_ROOTFS_DIR) continue
             if (!root.matches(ROOT_NAME_REGEX)) continue
             // PRoot temp files
             tempDir(root).let { if (it.exists()) it.deleteRecursively() }
-            // Rootfs /tmp and /var/tmp
-            File(linuxDir(root), "tmp").let { if (it.exists()) it.deleteRecursively() }
-            File(linuxDir(root), "var/tmp").let { if (it.exists()) it.deleteRecursively() }
+        }
+        // 全局 Rootfs 的 /tmp 与 /var/tmp
+        listOf("tmp", "var/tmp").forEach { path ->
+            File(linuxDir(), path).let { if (it.exists()) it.deleteRecursively() }
         }
     }
 
@@ -341,6 +353,9 @@ class WorkspaceManager(
         private const val LINUX_DIR = "linux"
         private const val TEMP_DIR = "tmp"
         const val DEFAULT_COMMAND_TIMEOUT_MS = 30_000L
+
+        /** 全局共享 Rootfs 所在的目录名 (baseDir 下, 与各工作区目录平级) */
+        const val GLOBAL_ROOTFS_DIR = ".rootfs"
 
         /** Rootfs 内工作区文件区的挂载点 */
         const val ROOTFS_WORKSPACE_DIR = "/workspace"

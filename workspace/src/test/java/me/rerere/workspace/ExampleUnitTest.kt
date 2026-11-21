@@ -47,14 +47,14 @@ class ExampleUnitTest {
         val root = "test-workspace"
         manager.ensureWorkspace(root)
 
-        assertFalse(manager.hasRootfs(root))
+        assertFalse(manager.hasRootfs())
 
-        File(manager.linuxDir(root), "etc").mkdirs()
-        assertFalse(manager.hasRootfs(root))
+        File(manager.linuxDir(), "etc").mkdirs()
+        assertFalse(manager.hasRootfs())
 
-        File(manager.linuxDir(root), "bin").mkdirs()
-        File(manager.linuxDir(root), "bin/sh").writeText("#!/bin/sh\n")
-        assertTrue(manager.hasRootfs(root))
+        File(manager.linuxDir(), "bin").mkdirs()
+        File(manager.linuxDir(), "bin/sh").writeText("#!/bin/sh\n")
+        assertTrue(manager.hasRootfs())
     }
 
     @Test
@@ -74,10 +74,9 @@ class ExampleUnitTest {
         }
         server.start()
         try {
-            val root = "test-workspace"
-            installer.install(root, "http://127.0.0.1:${server.address.port}/rootfs.tar.gz")
+            installer.install("http://127.0.0.1:${server.address.port}/rootfs.tar.gz")
 
-            val linuxDir = manager.linuxDir(root)
+            val linuxDir = manager.linuxDir()
             assertEquals("echo hello\n", File(linuxDir, "bin/hello").readText())
             assertTrue(File(linuxDir, "bin/hello").canExecute())
             assertTrue(Files.isSymbolicLink(File(linuxDir, "usr/bin/hello-link").toPath()))

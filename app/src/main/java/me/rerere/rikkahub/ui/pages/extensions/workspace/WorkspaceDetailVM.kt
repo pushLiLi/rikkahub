@@ -12,11 +12,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
+import me.rerere.rikkahub.data.model.WorkspaceApprovalPolicy
 import me.rerere.rikkahub.data.model.WorkspaceStorageMount
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.service.BackgroundShellManager
@@ -302,24 +304,41 @@ class WorkspaceDetailVM(
         }
     }
 
-    fun setToolApproval(toolName: String, needsApproval: Boolean) {
+    fun setToolApproval(toolName: String, policy: WorkspaceApprovalPolicy) {
         viewModelScope.launch {
             val workspace = state.value.workspace ?: return@launch
-            repository.setToolApproval(workspace.id, toolName, needsApproval)
+            repository.setToolApproval(workspace.id, toolName, policy)
             loadWorkspace()
         }
     }
 
-    fun installRootfs(url: String) {
-        viewModelScope.launch {
-            _installError.value = null
-            val workspace = state.value.workspace ?: return@launch
-            _installProgress.value = RootfsInstallProgress(stage = RootfsInstallStage.DOWNLOADING)
+    /** Rootfs 安装来源: 镜像列表 / 自定义 URL */
+    sealed interface RootfsInstallSource {
+        /** 依次尝试的镜像列表 */
+        data class Mirrors(val urls: List<String>) : RootfsInstallSource
+
+        data class Custom(val url: String) : RootfsInstallSource
+    }
+
+    private var installJob: Job? = null
+
+    fun installRootfs(source: RootfsInstallSource) {
+        // 已在安装中时忽略重复点击
+        if (installJob?.isActive == true) return
+        _installError.value = null
+        _installProgress.value = RootfsInstallProgress(stage = RootfsInstallStage.DOWNLOADING)
+        installJob = viewModelScope.launch {
             try {
-                terminalSessionManager.closeWorkspace(workspace.root)
-                backgroundShellManager.killWorkspace(workspace.id)
-                repository.installRootfs(workspace.id, url) { progress ->
-                    _installProgress.value = progress
+                // 全局 Rootfs: 安装影响所有本地工作区, 先终止终端与后台命令
+                terminateLocalRootfsSessions()
+                when (source) {
+                    is RootfsInstallSource.Mirrors ->
+                        repository.installRootfsFromMirrors(
+                            source.urls
+                        ) { progress -> _installProgress.value = progress }
+
+                    is RootfsInstallSource.Custom ->
+                        repository.installRootfs(source.url) { progress -> _installProgress.value = progress }
                 }
                 loadWorkspace()
                 refresh()
@@ -330,6 +349,36 @@ class WorkspaceDetailVM(
             } finally {
                 _installProgress.value = null
             }
+        }
+    }
+
+    /** 取消进行中的安装: 先断开网络连接让阻塞立即退出, 再取消任务并恢复状态 */
+    fun cancelInstallRootfs() {
+        val job = installJob ?: return
+        repository.cancelRootfsInstall()
+        job.cancel()
+    }
+
+    fun uninstallRootfs() {
+        viewModelScope.launch {
+            _installError.value = null
+            try {
+                terminateLocalRootfsSessions()
+                repository.uninstallRootfs()
+                loadWorkspace()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (error: Throwable) {
+                _settingsError.value = error.message.orEmpty()
+            }
+        }
+    }
+
+    /** 全局 Rootfs 被替换/卸载前, 关掉所有本地工作区的终端与后台命令 */
+    private suspend fun terminateLocalRootfsSessions() {
+        repository.listFlow().first().filterNot { it.isSsh() }.forEach { workspace ->
+            terminalSessionManager.closeWorkspace(workspace.root)
+            backgroundShellManager.killWorkspace(workspace.id)
         }
     }
 
@@ -386,7 +435,8 @@ class WorkspaceDetailVM(
         viewModelScope.launch {
             val workspace = repository.getById(id)
             val layout = repository.layout(id)
-            _state.update { it.copy(workspace = workspace, layout = layout) }
+            val distro = if (workspace?.capabilities()?.rootfs == true) repository.rootfsDistroName() else null
+            _state.update { it.copy(workspace = workspace, layout = layout, rootfsDistro = distro) }
         }
     }
 }
@@ -394,6 +444,8 @@ class WorkspaceDetailVM(
 data class WorkspaceDetailState(
     val workspace: WorkspaceEntity? = null,
     val layout: WorkspaceLayout? = null,
+    /** 全局 Rootfs 已安装的发行版名称; 本地工作区且未安装时为 null */
+    val rootfsDistro: String? = null,
     val area: WorkspaceStorageArea = WorkspaceStorageArea.FILES,
     val path: String = "",
     val entries: List<WorkspaceFileEntry> = emptyList(),

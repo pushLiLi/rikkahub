@@ -14,7 +14,7 @@ class LocalWorkspaceBackend(
 ) : WorkspaceBackend {
     override val layout: WorkspaceLayout = manager.layout(extraMounts)
 
-    override fun shell(): String = manager.rootfsShell(root)
+    override fun shell(): String = manager.rootfsShell()
 
     override fun listFiles(area: WorkspaceStorageArea, path: String): List<WorkspaceFileEntry> {
         manager.ensureWorkspace(root)

@@ -6,6 +6,7 @@ import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
+import me.rerere.rikkahub.data.model.WorkspaceAgentMode
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.workspace.WorkspaceLayout
 import me.rerere.workspace.WorkspaceManager
@@ -47,14 +48,16 @@ class WorkspaceReminderTransformer(
                 Log.w("WorkspaceReminder", "Workspace unreachable: $workspaceId", e)
                 return messages.withPrompt(buildUnreachablePrompt(workspace, layout, e))
             }
-            buildSshWorkspacePrompt(workspace, layout, environment.shell, environment.distro, ctx.workspaceCwd)
+            buildSshWorkspacePrompt(workspace, layout, environment.shell, environment.distro, ctx.workspaceCwd) +
+                buildAgentModePrompt(ctx.assistant.workspaceAgentMode)
         } else {
             buildWorkspacePrompt(
                 workspace = workspace,
                 shell = workspaceRepository.shell(workspaceId),
                 distro = readDistroName(workspaceId),
                 cwd = ctx.workspaceCwd,
-            ) + buildAgentsPrompt(workspaceId, ctx.workspaceCwd)
+            ) + buildAgentsPrompt(workspaceId, ctx.workspaceCwd) +
+                buildAgentModePrompt(ctx.assistant.workspaceAgentMode)
         }
         return messages.withPrompt(prompt)
     }
@@ -308,6 +311,29 @@ private fun buildUnreachablePrompt(workspace: WorkspaceEntity, layout: Workspace
         )
         append("</workspace>")
     }
+
+/** 执行模式提示词：Plan 模式下约束模型只读探索；Build 模式不需要额外说明 */
+private fun buildAgentModePrompt(mode: WorkspaceAgentMode): String = when (mode) {
+    WorkspaceAgentMode.BUILD -> ""
+    WorkspaceAgentMode.PLAN -> buildString {
+        appendLine()
+        appendLine()
+        appendLine("<workspace_mode>")
+        appendLine(
+            "You are currently in PLAN mode. Explore and analyze the workspace using read-only tools and read-only shell " +
+                "commands (ls, cat, grep, find, git status/log/diff, etc.), and discuss plans with the user."
+        )
+        appendLine(
+            "Do NOT modify, create or delete any files, and do NOT run commands with side effects: file-writing tools are " +
+                "unavailable, and shell commands that mutate state will be held for user approval."
+        )
+        appendLine(
+            "When you have a clear picture, present a concise plan (what to change and why). " +
+                "If the user then wants the changes applied, ask them to switch to BUILD mode."
+        )
+        append("</workspace_mode>")
+    }
+}
 
 private fun StringBuilder.appendShellLine(shell: String) {
     if (shell.substringAfterLast('/') == "bash") {

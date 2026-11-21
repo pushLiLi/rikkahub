@@ -90,7 +90,7 @@ class LocalWorkspaceBackendTest {
         assertEquals(File(nativeLibraryDir, "libproot_exec.so").absolutePath, launch.executable)
         assertEquals(manager.filesDir(root).absolutePath, launch.cwd)
         assertEquals(
-            listOf("--root-id", "--link2symlink", "--kill-on-exit", "-r", manager.linuxDir(root).absolutePath),
+            listOf("--root-id", "--link2symlink", "--kill-on-exit", "-r", manager.linuxDir().absolutePath),
             launch.args.take(5),
         )
         assertTrue(launch.args.containsAll(listOf("-w", "/workspace")))

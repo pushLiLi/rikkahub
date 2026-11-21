@@ -141,7 +141,7 @@ class WorkspaceTerminalSessionManager internal constructor(
         } else {
             try {
                 withContext(Dispatchers.IO) {
-                    if (!workspaceManager.hasRootfs(root)) {
+                    if (!workspaceManager.hasRootfs()) {
                         false
                     } else {
                         workspaceManager.prepareTerminal(root, appContext.activeDnsServers())

@@ -22,6 +22,8 @@ export interface ConversationConfig {
   builtInSearch?: boolean;
   mcpServers?: string[];
   workspaceId?: string | null;
+  /** 工作区执行模式 (BUILD / PLAN) */
+  workspaceAgentMode?: string;
   enabledSkills?: string[];
 }
 

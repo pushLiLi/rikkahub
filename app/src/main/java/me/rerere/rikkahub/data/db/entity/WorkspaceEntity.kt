@@ -4,7 +4,10 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import me.rerere.rikkahub.data.model.SshWorkspaceSettings
+import me.rerere.rikkahub.data.model.WorkspaceApprovalPolicy
 import me.rerere.rikkahub.data.model.WorkspaceStorageMount
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.workspace.Workspace
@@ -54,6 +57,26 @@ data class WorkspaceEntity(
 ) {
     fun isSsh(): Boolean = type == WorkspaceType.SSH.name
 
+    /**
+     * 按工具读取审批策略。
+     *
+     * 新版本存策略名；旧版本存布尔值（false=免审, true=必审），两种格式逐项转换：
+     * 旧 `false` → ALWAYS_ALLOW，旧 `true` → ALWAYS_ASK。认不出的值忽略，沿用默认策略。
+     */
+    fun toolApprovalPolicies(): Map<String, WorkspaceApprovalPolicy> = runCatching {
+        val obj = JsonInstant.parseToJsonElement(toolApprovals).jsonObject
+        obj.entries.mapNotNull { (tool, value) ->
+            val primitive = value as? JsonPrimitive ?: return@mapNotNull null
+            val policy = when {
+                primitive.isString -> WorkspaceApprovalPolicy.entries.find { it.name == primitive.content }
+                primitive.content == "true" -> WorkspaceApprovalPolicy.ALWAYS_ASK
+                primitive.content == "false" -> WorkspaceApprovalPolicy.ALWAYS_ALLOW
+                else -> null
+            } ?: return@mapNotNull null
+            tool to policy
+        }.toMap()
+    }.getOrDefault(emptyMap())
+
     fun capabilities(): WorkspaceCapabilities =
         runCatching { WorkspaceType.valueOf(type) }.getOrDefault(WorkspaceType.LOCAL).capabilities
 
@@ -85,10 +108,6 @@ data class WorkspaceEntity(
 
     fun supportsTerminal(): Boolean =
         capabilities().terminal && shellStatus != WorkspaceShellStatus.DISABLED.name
-
-    fun toolApprovalOverrides(): Map<String, Boolean> = runCatching {
-        JsonInstant.decodeFromString<Map<String, Boolean>>(toolApprovals)
-    }.getOrDefault(emptyMap())
 
     fun toWorkspace(): Workspace = Workspace(
         id = id,

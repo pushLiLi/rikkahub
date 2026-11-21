@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.data.ai.tools
 
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -12,6 +13,8 @@ import me.rerere.ai.ui.DiffMetadata
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.toMetadata
 import me.rerere.rikkahub.data.files.FilesManager
+import me.rerere.rikkahub.data.model.WorkspaceAgentMode
+import me.rerere.rikkahub.data.model.WorkspaceApprovalPolicy
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.service.BackgroundShellManager
 import me.rerere.rikkahub.service.BackgroundShellTask
@@ -27,18 +30,23 @@ import kotlin.uuid.Uuid
 private const val SHELL_TIMEOUT_MAX_SECONDS = 600L
 private const val MAX_READ_FILE_BYTES = 8L * 1024 * 1024
 
-val WorkspaceToolDefaultApprovals: Map<String, Boolean> = mapOf(
-    "workspace_read_file" to false,
-    "workspace_write_file" to false,
-    "workspace_edit_file" to false,
-    "workspace_shell" to true,
+/** 各工具的默认审批策略；未被用户覆盖时生效 */
+val WorkspaceToolDefaultPolicies: Map<String, WorkspaceApprovalPolicy> = mapOf(
+    "workspace_read_file" to WorkspaceApprovalPolicy.ALWAYS_ALLOW,
+    "workspace_write_file" to WorkspaceApprovalPolicy.SMART,
+    "workspace_edit_file" to WorkspaceApprovalPolicy.SMART,
+    "workspace_shell" to WorkspaceApprovalPolicy.SMART,
+    "workspace_shell_kill" to WorkspaceApprovalPolicy.ALWAYS_ALLOW,
 )
 
 /** 直接写文件的工具, 只在支持 [WorkspaceCapabilities.fileWriteTools] 的工作区提供 */
 val WorkspaceFileWriteToolNames: Set<String> = setOf("workspace_write_file", "workspace_edit_file")
 
-fun resolveWorkspaceToolApproval(name: String, overrides: Map<String, Boolean>): Boolean =
-    overrides[name] ?: WorkspaceToolDefaultApprovals[name] ?: false
+fun resolveWorkspaceToolPolicy(
+    name: String,
+    overrides: Map<String, WorkspaceApprovalPolicy>,
+): WorkspaceApprovalPolicy =
+    overrides[name] ?: WorkspaceToolDefaultPolicies[name] ?: WorkspaceApprovalPolicy.ALWAYS_ALLOW
 
 suspend fun createWorkspaceTools(
     workspaceId: String?,
@@ -46,12 +54,13 @@ suspend fun createWorkspaceTools(
     cwd: String? = null,
     conversationId: Uuid? = null,
     backgroundShellManager: BackgroundShellManager? = null,
+    agentMode: WorkspaceAgentMode = WorkspaceAgentMode.BUILD,
 ): List<Tool> {
     if (workspaceId.isNullOrBlank()) return emptyList()
     val layout = workspaceRepository.layout(workspaceId) ?: return emptyList()
     val workspace = workspaceRepository.getById(workspaceId) ?: return emptyList()
-    val approvalOverrides = workspace.toolApprovalOverrides()
-    fun needsApproval(name: String) = resolveWorkspaceToolApproval(name, approvalOverrides)
+    val policyOverrides = workspace.toolApprovalPolicies()
+    fun resolvePolicy(name: String) = resolveWorkspaceToolPolicy(name, policyOverrides)
 
     val shellCwd = cwd?.let(layout::relativeToWorkspace)
     // 后台命令按会话归属, 没有会话时不提供
@@ -59,17 +68,64 @@ suspend fun createWorkspaceTools(
         ?.takeIf { workspace.capabilities().backgroundShell }
         ?.let { manager -> conversationId?.let { BackgroundShell(manager, it) } }
 
+    // Plan 模式只保留只读探索能力：写文件与停止后台任务都不提供，
+    // shell 只放行只读命令（见 shellNeedsApproval）
+    val planMode = agentMode == WorkspaceAgentMode.PLAN
+
     return buildList {
-        add(createReadFileTool(workspaceId, layout, ::needsApproval, workspaceRepository))
-        if (workspace.capabilities().fileWriteTools) {
-            add(createWriteFileTool(workspaceId, layout, ::needsApproval, workspaceRepository))
-            add(createEditFileTool(workspaceId, layout, ::needsApproval, workspaceRepository))
+        add(createReadFileTool(workspaceId, layout, ::resolvePolicy, workspaceRepository))
+        if (!planMode && workspace.capabilities().fileWriteTools) {
+            add(createWriteFileTool(workspaceId, layout, ::resolvePolicy, workspaceRepository))
+            add(createEditFileTool(workspaceId, layout, ::resolvePolicy, workspaceRepository))
         }
-        add(createShellTool(workspaceId, layout, ::needsApproval, workspaceRepository, shellCwd, background))
+        add(
+            createShellTool(
+                workspaceId = workspaceId,
+                layout = layout,
+                resolvePolicy = ::resolvePolicy,
+                agentMode = agentMode,
+                workspaceRepository = workspaceRepository,
+                defaultCwd = shellCwd,
+                background = background,
+            )
+        )
         if (background != null) {
             add(createShellOutputTool(background))
-            add(createShellKillTool(background))
+            if (!planMode) add(createShellKillTool(background))
         }
+    }
+}
+
+/** 文件写入类工具按策略判定是否需要审批 */
+private fun fileWriteNeedsApproval(
+    policy: WorkspaceApprovalPolicy,
+    layout: WorkspaceLayout,
+    args: JsonElement,
+): Boolean = when (policy) {
+    WorkspaceApprovalPolicy.ALWAYS_ALLOW -> false
+    WorkspaceApprovalPolicy.ALWAYS_ASK -> true
+    // 智能放行：工作区安全目录内的写入免审，安全目录外（如共享存储挂载）需要审批
+    WorkspaceApprovalPolicy.SMART -> args.pathOutsideWritableRoots(layout, "path")
+}
+
+/** shell 命令按策略 + 模式 + 命令安全分级判定是否需要审批 */
+private fun shellNeedsApproval(
+    policy: WorkspaceApprovalPolicy,
+    agentMode: WorkspaceAgentMode,
+    layout: WorkspaceLayout,
+    command: String,
+    runInBackground: Boolean,
+): Boolean = when (policy) {
+    WorkspaceApprovalPolicy.ALWAYS_ALLOW -> false
+    WorkspaceApprovalPolicy.ALWAYS_ASK -> true
+    WorkspaceApprovalPolicy.SMART -> when (agentMode) {
+        // Plan 模式只放行只读命令，其余（包括后台启动）都要审批
+        WorkspaceAgentMode.PLAN ->
+            runInBackground || ShellCommandClassifier.classify(command, layout.writableRoots) != ShellCommandSafety.SAFE_READ_ONLY
+
+        // Build 模式放行只读与工作区内安全修改，仅高危命令需要审批
+        WorkspaceAgentMode.BUILD ->
+            ShellCommandClassifier.classify(command, layout.writableRoots) == ShellCommandSafety.HIGH_RISK
     }
 }
 
@@ -83,7 +139,7 @@ private fun String.isImagePath(): Boolean =
 private fun createReadFileTool(
     workspaceId: String,
     layout: WorkspaceLayout,
-    needsApproval: (String) -> Boolean,
+    resolvePolicy: (String) -> WorkspaceApprovalPolicy,
     workspaceRepository: WorkspaceRepository,
 ) = Tool(
     name = "workspace_read_file",
@@ -100,7 +156,7 @@ private fun createReadFileTool(
             required = listOf("path"),
         )
     },
-    needsApproval = { needsApproval("workspace_read_file") },
+    needsApproval = { resolvePolicy("workspace_read_file") == WorkspaceApprovalPolicy.ALWAYS_ASK },
     execute = {
         val path = it.jsonObject.absolutePath("path")
         if (path.isImagePath()) {
@@ -122,7 +178,7 @@ private fun createReadFileTool(
 private fun createWriteFileTool(
     workspaceId: String,
     layout: WorkspaceLayout,
-    needsApproval: (String) -> Boolean,
+    resolvePolicy: (String) -> WorkspaceApprovalPolicy,
     workspaceRepository: WorkspaceRepository,
 ) = Tool(
     name = "workspace_write_file",
@@ -146,7 +202,7 @@ private fun createWriteFileTool(
             required = listOf("path", "text"),
         )
     },
-    needsApproval = { needsApproval("workspace_write_file") || it.pathOutsideWritableRoots(layout, "path") },
+    needsApproval = { fileWriteNeedsApproval(resolvePolicy("workspace_write_file"), layout, it) },
     execute = {
         val params = it.jsonObject
         val path = params.absolutePath("path")
@@ -160,7 +216,7 @@ private fun createWriteFileTool(
 private fun createEditFileTool(
     workspaceId: String,
     layout: WorkspaceLayout,
-    needsApproval: (String) -> Boolean,
+    resolvePolicy: (String) -> WorkspaceApprovalPolicy,
     workspaceRepository: WorkspaceRepository,
 ) = Tool(
     name = "workspace_edit_file",
@@ -190,7 +246,7 @@ private fun createEditFileTool(
             required = listOf("path", "old_text", "new_text"),
         )
     },
-    needsApproval = { needsApproval("workspace_edit_file") || it.pathOutsideWritableRoots(layout, "path") },
+    needsApproval = { fileWriteNeedsApproval(resolvePolicy("workspace_edit_file"), layout, it) },
     execute = {
         val params = it.jsonObject
         val path = params.absolutePath("path")
@@ -229,7 +285,8 @@ private class BackgroundShell(val manager: BackgroundShellManager, val conversat
 private fun createShellTool(
     workspaceId: String,
     layout: WorkspaceLayout,
-    needsApproval: (String) -> Boolean,
+    resolvePolicy: (String) -> WorkspaceApprovalPolicy,
+    agentMode: WorkspaceAgentMode,
     workspaceRepository: WorkspaceRepository,
     defaultCwd: String? = null,
     background: BackgroundShell? = null,
@@ -242,6 +299,12 @@ private fun createShellTool(
         append("Use cwd for a path relative to the workspace files root. ")
         if (!defaultCwd.isNullOrBlank()) {
             append("Defaults to '$defaultCwd'. ")
+        }
+        if (agentMode == WorkspaceAgentMode.PLAN) {
+            append(
+                "PLAN MODE: only read-only commands (ls, cat, grep, find, git status/log/diff, etc.) are allowed; " +
+                    "any command that modifies files or has side effects requires user approval. "
+            )
         }
         if (background != null) {
             append(
@@ -294,7 +357,11 @@ private fun createShellTool(
             required = listOf("command"),
         )
     },
-    needsApproval = { needsApproval("workspace_shell") },
+    needsApproval = { args ->
+        val command = args.jsonObject.string("command")
+        val runInBackground = args.jsonObject.string("run_in_background")?.toBooleanStrictOrNull() ?: false
+        command != null && shellNeedsApproval(resolvePolicy("workspace_shell"), agentMode, layout, command, runInBackground)
+    },
     execute = {
         val params = it.jsonObject
         val command = params.string("command") ?: error("command is required")
