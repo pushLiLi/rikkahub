@@ -5,6 +5,10 @@ Native Android LLM chat client (Kotlin + Jetpack Compose, Material 3 Expressive)
 workspace. The project **does not accept pull requests**. `CLAUDE.md` exists for Claude Code; this file
 is the canonical summary.
 
+**This repo is an independent fork** (decided 2026-11-21): upstream `re-ovo/rikkahub` is no longer
+synced, merged, or tracked as a remote. `origin` is this project's own repository — never add the
+upstream remote, fetch it, or suggest porting its commits.
+
 ## Setup and verification
 
 - **JDK 21.** CI uses the JetBrains Runtime 21 (`daily-build.yml`).
