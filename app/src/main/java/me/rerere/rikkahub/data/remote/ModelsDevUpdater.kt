@@ -27,13 +27,17 @@ class ModelsDevUpdater(
     private val context: Context,
     private val client: OkHttpClient,
 ) {
-    private val dir = File(context.filesDir, "models_dev")
+    // 缓存格式带版本号：目录新增字段（供应商 api/name/doc/npm、模型 name/status）时必须升版本，
+    // 否则旧格式缓存解码成功但没有新字段，且 ETag 命中 304 时永远不会被替换
+    private val dir = File(context.filesDir, "models_dev_v2")
     private val dataFile = File(dir, "api.json")
 
     // 内容是上次响应的 ETag，修改时间是上次检查更新的时间
     private val etagFile = File(dir, "etag")
 
     suspend fun start() = withContext(Dispatchers.IO) {
+        // 清理旧版本的缓存目录（无版本号的历史格式）
+        File(context.filesDir, "models_dev").deleteRecursively()
         val hasCache = loadLocal()
         if (System.currentTimeMillis() - etagFile.lastModified() >= REFRESH_INTERVAL.inWholeMilliseconds) {
             runCatching { refresh(useEtag = hasCache) }

@@ -329,8 +329,9 @@ private fun RecommendProviderButton(
     }
 
     if (showSheet) {
-        // 目录数据在 App 启动时就从 models.dev 装好了，这里读一次即可
-        val presets = remember { usableProviderPresets() }
+        // 目录数据在 App 启动时就从 models.dev 装好了；万一还没装好，下一次重组再取而不是冻结空列表
+        val cachedPresets = remember { usableProviderPresets() }
+        val presets = if (cachedPresets.isNotEmpty()) cachedPresets else usableProviderPresets()
         var directoryQuery by remember { mutableStateOf("") }
         val filteredPresets = remember(presets, directoryQuery) {
             if (directoryQuery.isBlank()) {
