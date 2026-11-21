@@ -23,7 +23,8 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.limitContext
 import me.rerere.rikkahub.R
-import me.rerere.rikkahub.data.ai.prompts.buildMemoryPrompt
+import me.rerere.rikkahub.data.ai.prompts.MEMORY_RULES_PROMPT
+import me.rerere.rikkahub.data.ai.prompts.buildMemoryStatePrompt
 import me.rerere.rikkahub.data.ai.tools.ChatToolFactory
 import me.rerere.rikkahub.data.ai.transformers.Base64ImageToLocalFileTransformer
 import me.rerere.rikkahub.data.ai.transformers.DocumentAsPromptTransformer
@@ -61,9 +62,9 @@ private const val TAG = "ChatRequestFactory"
  * 正常对话和压缩用同一份上下文组装请求，系统提示词、工具定义、参数和 sessionId 都相同，
  * 压缩请求的前缀才能和上一轮对话一致，命中提示词缓存。
  *
- * 记忆以快照 [memoryPrompt] 保存在这里：每轮取一次，工具循环的每一步都用同一份，
- * 系统提示词在循环内字节不变，前缀缓存才不会被中途爆破。刚写入的记忆通过工具结果可见，
- * 快照里的内容下一轮才更新；后台整理或用户手动改的记忆同样下一轮生效。
+ * 记忆内容不在系统提示词里：静态规则（[MEMORY_RULES_PROMPT]）进系统提示词且永不变化，
+ * 动态状态以 isMemoryState 消息的形式持久化在对话中、插在用户消息前，内容变化时才追加新的一条
+ * （见 ChatService 发送消息时的插入逻辑）。记忆更新因此不会爆破前缀缓存的历史部分。
  */
 class ChatTurnContext(
     val settings: Settings,
@@ -74,7 +75,6 @@ class ChatTurnContext(
     val conversationSystemPrompt: String?,
     val workspaceCwd: String?,
     val tools: List<Tool>,
-    val memoryPrompt: String?,
 )
 
 /** 把会话变成发给模型的请求：系统提示词、上下文裁剪、输入输出转换都在这里 */
@@ -125,11 +125,12 @@ class ChatRequestFactory(
                 conversationId = conversation.id,
                 workspaceCwd = conversation.workspaceCwd,
             ),
-            // 记忆快照每轮取一次，循环内不再变化（见类注释）
-            memoryPrompt = assistant.enableMemory.takeIf { it }
-                ?.let { buildMemoryPrompt(memoryRepository.getFiles(assistant.memoryId)) },
         )
     }
+
+    /** 当前记忆状态快照内容；发送消息时与上一条记忆状态消息比对，不同才插入新的一条 */
+    suspend fun buildMemoryStateSnapshot(assistant: Assistant): String =
+        buildMemoryStatePrompt(memoryRepository.getFiles(assistant.memoryId))
 
     /**
      * 本轮交给 runAgent 的请求和钩子。[messages] 的最后一条是助手消息时从它继续，否则新建一条助手消息。
@@ -247,11 +248,11 @@ class ChatRequestFactory(
                     append(effectiveSystemPrompt)
                 }
 
-                // 记忆快照来自 ChatTurnContext（每轮取一次）：循环内系统提示词字节不变，
-                // 提示词缓存不会被记忆写入或后台整理中途爆破；代价是快照内容下一轮才更新
-                turn.memoryPrompt?.let {
+                // 记忆规则是静态文本, 永不变化; 记忆内容以 isMemoryState 消息随对话流转(见类注释),
+                // 二者都不会让前缀缓存失效
+                if (assistant.enableMemory) {
                     appendLine()
-                    append(it)
+                    append(MEMORY_RULES_PROMPT)
                 }
                 // 工具prompt
                 turn.tools.forEach { tool ->

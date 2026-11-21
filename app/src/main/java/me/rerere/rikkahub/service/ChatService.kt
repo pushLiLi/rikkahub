@@ -70,6 +70,7 @@ import me.rerere.rikkahub.data.model.getStoredAssistantOf
 import me.rerere.rikkahub.data.model.insertContextCheckpoint
 import me.rerere.rikkahub.data.model.isAwaitingToolApproval
 import me.rerere.rikkahub.data.model.lastContextTokens
+import me.rerere.rikkahub.data.model.lastMemoryStateText
 import me.rerere.rikkahub.data.model.localFileUrls
 import me.rerere.rikkahub.data.model.replaceUserRegexes
 import me.rerere.rikkahub.data.model.selectBranch
@@ -547,19 +548,29 @@ class ChatService(
                 val assistant = settingsStore.awaitLoaded().getStoredAssistantOf(session.state.value)
                 val processedContent = queued.parts.replaceUserRegexes(assistant)
 
+                // 记忆状态快照：内容与上一条快照不同时才在用户消息前追加一条（只追加不改写），
+                // 记忆更新因此不会爆破前缀缓存的历史部分；没开记忆时为 null
+                val memorySnapshot = assistant.enableMemory.takeIf { it }
+                    ?.let { requestFactory.buildMemoryStateSnapshot(assistant) }
+
                 // 添加消息到列表
                 val previousIds = session.state.value.currentMessages.mapTo(HashSet()) { it.id }
                 // 等待中的通知存成用户消息之前的节点：写进回复的话，重新生成时就丢了。
                 // 不回复时留在收件箱，这一轮结束后单独开一轮
                 val notices = if (queued.answer) session.inbox.takeNotices() else emptyList()
-                session.update {
-                    it.copy(
-                        messageNodes = it.messageNodes +
-                            listOfNotNull(notices.takeIf { n -> n.isNotEmpty() }?.toNoticeNode()) +
-                            UIMessage(
-                                role = MessageRole.USER,
-                                parts = processedContent,
-                            ).toMessageNode(),
+                session.update { latest ->
+                    latest.copy(
+                        messageNodes = latest.messageNodes +
+                            listOfNotNull(
+                                notices.takeIf { n -> n.isNotEmpty() }?.toNoticeNode(),
+                                memorySnapshot
+                                    ?.takeIf { snapshot -> snapshot != latest.lastMemoryStateText() }
+                                    ?.toMemoryStateNode(),
+                                UIMessage(
+                                    role = MessageRole.USER,
+                                    parts = processedContent,
+                                ).toMessageNode(),
+                            )
                     )
                 }
                 session.flush()
@@ -629,6 +640,10 @@ class ChatService(
 
     private fun List<UIMessagePart.Notice>.toNoticeNode() =
         UIMessage(role = MessageRole.USER, parts = this).toMessageNode()
+
+    // 记忆状态快照节点：发送消息时内容有变化才追加（见 sendQueuedMessage）
+    private fun String.toMemoryStateNode() =
+        UIMessage.user(this).copy(isMemoryState = true).toMessageNode()
 
     // 发送、重新生成和审批失败时报告错误并暂停队列，排队的消息等用户处理完再继续
     private fun reportFailure(session: ConversationSession, error: Exception, @StringRes title: Int) {

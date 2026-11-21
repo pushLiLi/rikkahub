@@ -75,6 +75,8 @@ class ConversationMetaGenerator(
                     prompt.applyPlaceholders(
                         "locale" to Locale.getDefault().displayName,
                         "content" to conversation.currentMessages
+                            // 记忆状态快照是内部消息，不作为标题/建议的素材
+                            .filterNot { it.isMemoryState }
                             .takeLast(recentMessages).joinToString("\n\n") { it.summaryAsText(maxLength = 500) },
                     )
                 ),

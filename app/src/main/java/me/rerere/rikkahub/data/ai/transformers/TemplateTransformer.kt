@@ -25,7 +25,8 @@ class TemplateTransformer(
         val template = engine.getTemplate(ctx.assistant.id.toString())
         val timeZone = TimeZone.currentSystemDefault()
         return messages.map { message ->
-            if (message.isSynthetic) return@map message
+            // 记忆状态消息是内部快照, 不做模板渲染, 内容保持原样
+            if (message.isSynthetic || message.isMemoryState) return@map message
 
             // 使用消息本身的发送时间而不是当前时间, 保证多次请求时渲染结果稳定, 不破坏 prompt 缓存
             val createdAt = message.createdAt.toInstant(timeZone).toJavaInstant()
@@ -35,7 +36,8 @@ class TemplateTransformer(
                         is UIMessagePart.Text -> {
                             val result = StringWriter()
                             template.evaluate(
-                                result, mapOf(
+                                result,
+                                mapOf(
                                     "message" to part.text,
                                     "role" to message.role.name.lowercase(),
                                     "time" to createdAt.toLocalTime(),

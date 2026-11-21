@@ -651,6 +651,11 @@ export const ChatMessage = React.memo(({
     return <ChatMessageContextCheckpoint message={message} onEdit={onEdit} onDelete={onDelete} />;
   }
 
+  // 记忆状态快照是发给模型的内部消息，不渲染
+  if (message.isMemoryState) {
+    return null;
+  }
+
   // 运行时通知单独开一轮时存成 user 消息，网页端不展示通知，这里不留空气泡
   if (isUser && message.parts.length > 0 && !hasMessageContent) {
     return null;

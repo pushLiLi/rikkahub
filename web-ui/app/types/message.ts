@@ -33,4 +33,6 @@ export interface UIMessage {
   stepCount?: number | null;
   translation?: string | null;
   isContextCheckpoint?: boolean;
+  /** 记忆状态快照：发给模型的内部消息，不渲染 */
+  isMemoryState?: boolean;
 }

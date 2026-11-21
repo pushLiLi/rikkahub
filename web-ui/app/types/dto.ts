@@ -83,6 +83,8 @@ export interface MessageDto {
   translation?: string | null;
   /** 压缩检查点：此消息是它之前全部历史的摘要，之前的消息不再发送给模型 */
   isContextCheckpoint?: boolean;
+  /** 记忆状态快照：发给模型的内部消息，不渲染 */
+  isMemoryState?: boolean;
 }
 
 export interface MessageNodeDto {

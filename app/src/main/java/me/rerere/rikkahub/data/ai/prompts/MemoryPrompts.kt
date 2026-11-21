@@ -70,9 +70,7 @@ private val MEMORY_FORMAT_PROMPT = """
 """.trimIndent()
 
 private val MEMORY_SYSTEM_INTRO = """
-    You have a memory store that persists across conversations, made up of Markdown files. It is written for your future self: at the start of every conversation you are handed the contents below again.
-
-    ## Current memory
+    You have a memory store that persists across conversations, made up of Markdown files. It is written for your future self: the current state of the store is provided in the latest <memory_state> message in the conversation (just before the user's current input); earlier <memory_state> messages are outdated snapshots.
 """.trimIndent()
 
 private val MEMORY_SYSTEM_RULES = """
@@ -84,7 +82,7 @@ private val MEMORY_SYSTEM_RULES = """
     - If a question touches the user's own world (their projects, plans, people they have mentioned, a decision they are weighing) and the listing has a file whose description is relevant, call memory_read before answering. When you need several files, pass all the paths in one call.
     - Do not read for general questions anyone might ask (technical concepts, common knowledge), even when a file's topic is close.
     - Before saying "I don't know anything about X", you must have read the files that could be relevant.
-    - profile and preferences are already included above; do not read them again. Their version attribute can be passed as if_version directly.
+    - profile and preferences are already included in the latest <memory_state> message; do not read them again. Their version attribute can be passed as if_version directly.
 
     ## How to apply
 
@@ -164,17 +162,29 @@ internal fun buildMemoryConsolidationPrompt(fullReview: Boolean): String = build
     }
 }
 
-/** 主对话 system prompt 里的记忆片段：全文注入 profile 和 preferences，其余文件只给清单 */
-internal fun buildMemoryPrompt(files: List<MemoryFile>): String = buildString {
+/**
+ * 主对话 system prompt 里的记忆使用规则。内容永不变化：记忆更新只会追加新的
+ * [记忆状态消息][buildMemoryStatePrompt]，系统提示词字节保持稳定，提示词缓存不失效。
+ */
+internal val MEMORY_RULES_PROMPT: String = buildString {
     appendLine("<memory_system>")
     appendLine(MEMORY_SYSTEM_INTRO)
-    appendLine()
-    appendMemoryState(files)
     appendLine()
     appendLine(MEMORY_SYSTEM_RULES)
     appendLine("</memory_system>")
     appendLine()
     appendLine(MEMORY_FORMAT_PROMPT)
+}
+
+/**
+ * 记忆状态快照（profile/preferences 全文 + 其余文件清单）。
+ * 作为 isMemoryState 消息插在用户消息前随对话持久化；内容与上一条快照不同时才追加新的一条，
+ * 追加不改写旧消息，前缀缓存的历史部分因此不被记忆更新爆破。
+ */
+internal fun buildMemoryStatePrompt(files: List<MemoryFile>): String = buildString {
+    appendLine("<memory_state>")
+    appendMemoryState(files)
+    appendLine("</memory_state>")
 }
 
 /** 一个对话里交给整理器的部分，消息已经转成文本 */

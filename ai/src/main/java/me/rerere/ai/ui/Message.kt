@@ -36,6 +36,9 @@ data class UIMessage(
     val translation: String? = null,
     // 压缩检查点：此消息是它之前全部历史的摘要，组装请求时从最后一个检查点开始取
     val isContextCheckpoint: Boolean = false,
+    // 记忆状态快照：携带当时的记忆内容，插在用户消息前随对话持久化；
+    // 内容变化时才插入新的一条（追加不改写），提示词缓存的前缀因此不被记忆更新爆破
+    val isMemoryState: Boolean = false,
     // 请求期间生成的内部消息；该标记仅在内存中使用
     @Transient
     val isSynthetic: Boolean = false,

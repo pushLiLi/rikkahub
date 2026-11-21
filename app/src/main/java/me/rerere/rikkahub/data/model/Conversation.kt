@@ -175,6 +175,17 @@ internal fun Conversation.insertContextCheckpoint(afterNodeId: Uuid, summary: St
     )
 }
 
+/** 最后一条记忆状态消息的文本；没有时为 null。发送消息前用来判断记忆内容是否变化。 */
+internal fun Conversation.lastMemoryStateText(): String? =
+    currentMessages.lastOrNull { it.isMemoryState }?.toText()
+
+/**
+ * 末尾追加一条记忆状态快照消息。在用户消息节点加入之前调用，快照就落在它前面；
+ * 只追加不改写旧快照，前缀缓存的历史部分不被记忆更新爆破。
+ */
+internal fun Conversation.withMemoryStateMessage(content: String): Conversation =
+    copy(messageNodes = messageNodes + MessageNode.of(UIMessage.user(content).copy(isMemoryState = true)))
+
 /** 有工具调用在等待用户审批：这一轮还没结束，排队的消息要等审批完成后再发 */
 internal val Conversation.isAwaitingToolApproval: Boolean
     get() = currentMessages.any { message -> message.getTools().any { it.isPending } }

@@ -296,7 +296,9 @@ private fun ChatListNormal(
             .flatMap { it.models }
             .associateBy { it.id }
     }
-    val lastMessageIndex = conversation.messageNodes.lastIndex
+    // 记忆状态消息是发给模型的内部上下文快照，不在聊天列表里显示
+    val visibleNodes = conversation.messageNodes.filterNot { it.currentMessage.isMemoryState }
+    val lastMessageIndex = visibleNodes.lastIndex
     // 流式输出时会频繁重组，只在相关配置变了才重新查找模型
     val needsSetup = remember(settings.init, settings.providers, settings.chatModelId, settings.assistants, conversation.assistantId, conversation.config) {
         !settings.init && settings.getChatModelOf(conversation) == null
@@ -349,7 +351,7 @@ private fun ChatListNormal(
                     .hazeSource(state = hazeState),
             ) {
             itemsIndexed(
-                items = conversation.messageNodes,
+                items = visibleNodes,
                 key = { index, item -> item.id },
             ) { index, node ->
                 Column {

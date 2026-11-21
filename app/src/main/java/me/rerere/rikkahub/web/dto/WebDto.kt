@@ -4,8 +4,8 @@ import kotlinx.serialization.Serializable
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.ui.ModelSnapshot
-import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.ConversationConfig
@@ -236,6 +236,8 @@ data class MessageDto(
     val stepCount: Int? = null,
     val translation: String? = null,
     val isContextCheckpoint: Boolean = false,
+    // 记忆状态快照：发给模型的内部消息，客户端应隐藏不渲染
+    val isMemoryState: Boolean = false,
 )
 
 @Serializable
@@ -381,4 +383,5 @@ fun UIMessage.toDto() = MessageDto(
     stepCount = stepCount,
     translation = translation,
     isContextCheckpoint = isContextCheckpoint,
+    isMemoryState = isMemoryState,
 )

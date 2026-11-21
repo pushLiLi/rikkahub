@@ -22,28 +22,44 @@ class MemoryPromptTest {
         updatedAt = 0,
     )
 
-    private fun String.block(tag: String) = substringAfter("<$tag").substringAfter(">").substringBefore("</$tag>").trim()
+    private fun String.block(tag: String) = substringAfter(
+        "<$tag"
+    ).substringAfter(">").substringBefore("</$tag>").trim()
 
     @Test
     fun `profile is injected in full with its version and other files only appear in the listing`() {
-        val prompt = buildMemoryPrompt(listOf(profile, food))
+        val state = buildMemoryStatePrompt(listOf(profile, food))
 
-        assertTrue(prompt.contains("<profile version=\"${profile.version}\">"))
-        assertEquals("- [stated] Name is Lin", prompt.block("profile"))
+        assertTrue(state.contains("<profile version=\"${profile.version}\">"))
+        assertEquals("- [stated] Name is Lin", state.block("profile"))
 
-        val listing = prompt.block("memory_listing")
-        assertTrue(listing.startsWith("/topics/food.md | What the user eats and avoids | aliases: diet, 饮食 | updated: "))
+        val listing = state.block("memory_listing")
+        assertTrue(
+            listing.startsWith("/topics/food.md | What the user eats and avoids | aliases: diet, 饮食 | updated: ")
+        )
         assertFalse(listing.contains(MemoryFile.PROFILE_PATH))
-        assertFalse(prompt.contains("Allergic to peanuts"))
+        assertFalse(state.contains("Allergic to peanuts"))
     }
 
     @Test
     fun `missing files are shown as empty and creatable`() {
-        val prompt = buildMemoryPrompt(emptyList())
+        val state = buildMemoryStatePrompt(emptyList())
 
-        assertTrue(prompt.contains("<preferences version=\"new\">"))
-        assertEquals("(empty)", prompt.block("preferences"))
-        assertEquals("(no files yet)", prompt.block("memory_listing"))
+        assertTrue(state.contains("<preferences version=\"new\">"))
+        assertEquals("(empty)", state.block("preferences"))
+        assertEquals("(no files yet)", state.block("memory_listing"))
+    }
+
+    @Test
+    fun `rules prompt is static content without any memory state`() {
+        // 规则进系统提示词且永不变化；记忆内容只出现在 isMemoryState 消息里
+        val rules = MEMORY_RULES_PROMPT
+
+        assertTrue(rules.contains("<memory_system>"))
+        assertTrue(rules.contains("<memory_format>"))
+        assertTrue(rules.contains("latest <memory_state> message"))
+        assertFalse(rules.contains("<profile"))
+        assertFalse(rules.contains("<memory_listing>"))
     }
 
     @Test

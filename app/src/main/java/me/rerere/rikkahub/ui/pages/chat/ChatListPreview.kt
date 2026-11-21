@@ -104,8 +104,10 @@ private data class PreviewRound(
 }
 
 private fun List<MessageNode>.toPreviewRounds(): List<PreviewRound> {
+    // 记忆状态消息是内部快照，不进预览；过滤方式和聊天列表保持一致，轮次下标才能对上跳转位置
+    val nodes = filterNot { it.currentMessage.isMemoryState }
     val groups = mutableListOf<MutableList<IndexedValue<MessageNode>>>()
-    forEachIndexed { index, node ->
+    nodes.forEachIndexed { index, node ->
         // 检查点本身是 USER 消息会自己开一组；它后面的节点也要另起一组，不能并进检查点卡片
         val afterCheckpoint = groups.lastOrNull()?.last()?.value?.currentMessage?.isContextCheckpoint == true
         if (node.currentMessage.role == MessageRole.USER || groups.isEmpty() || afterCheckpoint) {

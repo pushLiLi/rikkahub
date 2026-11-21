@@ -185,6 +185,8 @@ fun createMemoryConversationTools(
     ),
 )
 
-/** 当前分支上用户和助手的消息，位置编号以这个列表为准 */
+/** 当前分支上用户和助手的消息，位置编号以这个列表为准。记忆状态快照是注入的内部消息，不算对话。 */
 internal fun Conversation.dialogueMessages(): List<UIMessage> =
-    currentMessages.filter { it.role == MessageRole.USER || it.role == MessageRole.ASSISTANT }
+    currentMessages.filter {
+        (it.role == MessageRole.USER || it.role == MessageRole.ASSISTANT) && !it.isMemoryState
+    }

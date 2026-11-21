@@ -123,6 +123,8 @@ object PlaceholderTransformer : InputMessageTransformer, KoinComponent {
     ): List<UIMessage> {
         val settingsStore = get<SettingsStore>()
         return messages.map {
+            // 记忆状态消息是内部快照, 不做占位符替换, 内容保持原样
+            if (it.isMemoryState) return@map it
             it.copy(
                 parts = it.parts.map { part ->
                     if (part is UIMessagePart.Text) {
