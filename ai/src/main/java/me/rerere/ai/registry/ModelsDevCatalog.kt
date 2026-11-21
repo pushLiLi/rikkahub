@@ -82,6 +82,13 @@ class ModelsDevCatalog private constructor(
             )
         }
 
+    /**
+     * 目录数据是否完整：带接入地址的供应商足够多。
+     * 旧格式缓存解码成功但没有供应商级 api 字段，靠这个判断才能识别出来并丢弃。
+     */
+    fun hasUsableDirectory(minProviders: Int = 50): Boolean =
+        providers.values.count { !it.api.isNullOrBlank() } >= minProviders
+
     /** 该供应商可预填的聊天模型：非 deprecated、输出含文本，最多 [limit] 个 */
     fun chatModelsOf(providerId: String, limit: Int): List<PresetModel> {
         val provider = providers[providerId] ?: return emptyList()

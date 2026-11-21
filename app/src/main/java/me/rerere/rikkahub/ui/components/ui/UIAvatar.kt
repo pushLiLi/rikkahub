@@ -1,8 +1,6 @@
 package me.rerere.rikkahub.ui.components.ui
 
 import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
@@ -120,12 +118,10 @@ fun UIAvatar(
         aspectRatio = 1f,
     )
 
-    val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
+    // 直接拉起系统相册选头像，不走文档管理器
+    val pickAvatarImage = rememberGalleryMediaPicker { uri: Uri? ->
         uri?.let(launchImageCrop)
     }
-
     Box(modifier = modifier.then(Modifier.size(32.dp))) {
         Surface(
             shape = shape,
@@ -212,7 +208,7 @@ fun UIAvatar(
                     Button(
                         onClick = {
                             showPickOption = false
-                            imagePickerLauncher.launch("image/*")
+                            pickAvatarImage()
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {

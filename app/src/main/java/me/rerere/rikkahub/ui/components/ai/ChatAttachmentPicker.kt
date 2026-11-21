@@ -3,7 +3,6 @@ package me.rerere.rikkahub.ui.components.ai
 import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,6 +23,7 @@ import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionCamera
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
+import me.rerere.rikkahub.ui.components.ui.rememberMultipleGalleryMediaPicker
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.utils.isAllowedFileType
@@ -106,30 +106,28 @@ internal fun rememberChatAttachmentPickerActions(
             onAttachmentAdded()
         },
     )
-    // 用系统相册选择器 (Photo Picker) 而不是文档管理器: 后者会记住上次停留的目录,
-    // 停在空文件夹时看不到任何图片; Photo Picker 永远直接展示相册网格
-    val imagePickerLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { selectedUris ->
-            if (selectedUris.isNotEmpty()) {
-                Log.d("ImagePickButton", "Selected URIs: $selectedUris")
-                if (!setting.displaySetting.skipCropImage && selectedUris.size == 1) {
-                    launchImageCrop(selectedUris.first())
-                } else {
-                    inputState.addImages(filesManager.createChatFilesByContents(selectedUris))
-                    onAttachmentAdded()
-                }
+    // 直接拉起系统相册 (ACTION_PICK): Photo Picker 在多数国产 ROM 上会回退到
+    // 文档管理器, 用户看到的是文件夹浏览而不是相册
+    val pickImages = rememberMultipleGalleryMediaPicker { selectedUris ->
+        if (selectedUris.isNotEmpty()) {
+            Log.d("ImagePickButton", "Selected URIs: $selectedUris")
+            if (!setting.displaySetting.skipCropImage && selectedUris.size == 1) {
+                launchImageCrop(selectedUris.first())
             } else {
-                Log.d("ImagePickButton", "No images selected")
-            }
-        }
-
-    val videoPickerLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { selectedUris ->
-            if (selectedUris.isNotEmpty()) {
-                inputState.addVideos(filesManager.createChatFilesByContents(selectedUris))
+                inputState.addImages(filesManager.createChatFilesByContents(selectedUris))
                 onAttachmentAdded()
             }
+        } else {
+            Log.d("ImagePickButton", "No images selected")
         }
+    }
+
+    val pickVideos = rememberMultipleGalleryMediaPicker(video = true) { selectedUris ->
+        if (selectedUris.isNotEmpty()) {
+            inputState.addVideos(filesManager.createChatFilesByContents(selectedUris))
+            onAttachmentAdded()
+        }
+    }
 
     val audioPickerLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selectedUris ->
@@ -187,16 +185,8 @@ internal fun rememberChatAttachmentPickerActions(
 
     return ChatAttachmentPickerActions(
         onTakePicture = onTakePicture,
-        onPickImage = {
-            imagePickerLauncher.launch(
-                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-            )
-        },
-        onPickVideo = {
-            videoPickerLauncher.launch(
-                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
-            )
-        },
+        onPickImage = { pickImages() },
+        onPickVideo = { pickVideos() },
         onPickAudio = { audioPickerLauncher.launch("audio/*") },
         onPickFile = { filePickerLauncher.launch(arrayOf("*/*")) },
         onSketch = { showSketch = true },

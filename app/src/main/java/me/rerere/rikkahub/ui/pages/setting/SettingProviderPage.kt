@@ -1,8 +1,6 @@
 package me.rerere.rikkahub.ui.pages.setting
 
 import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -67,6 +65,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.ui.toast.ToastType
 import kotlin.uuid.Uuid
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.registry.ProviderPreset
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
@@ -97,6 +96,7 @@ import me.rerere.rikkahub.ui.components.ui.TagType
 import me.rerere.rikkahub.ui.components.ui.cardGroupItemShape
 import me.rerere.rikkahub.ui.components.ui.decodeProviderSetting
 import me.rerere.rikkahub.ui.components.ui.longPressReorder
+import me.rerere.rikkahub.ui.components.ui.rememberGalleryMediaPicker
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.theme.CustomColors
@@ -189,6 +189,7 @@ fun SettingProviderPage(vm: SettingVM = koinViewModel()) {
                     }
                     AddButton(
                         showRestore = settings.hiddenProviderIds.isNotEmpty(),
+                        addedProviders = settings.providers,
                         onRestore = { showRestoreDialog = true },
                     ) { provider ->
                         addProvider(provider)
@@ -329,9 +330,9 @@ private fun RecommendProviderButton(
     }
 
     if (showSheet) {
-        // 目录数据在 App 启动时就从 models.dev 装好了；万一还没装好，下一次重组再取而不是冻结空列表
-        val cachedPresets = remember { usableProviderPresets() }
-        val presets = if (cachedPresets.isNotEmpty()) cachedPresets else usableProviderPresets()
+        // 订阅目录版本号: 目录在 App 启动后异步装载/后台刷新, 装好后这里会自动重组
+        val catalogVersion by ModelRegistry.catalogVersion.collectAsStateWithLifecycle()
+        val presets = remember(catalogVersion) { usableProviderPresets() }
         var directoryQuery by remember { mutableStateOf("") }
         val filteredPresets = remember(presets, directoryQuery) {
             if (directoryQuery.isBlank()) {
@@ -364,65 +365,73 @@ private fun RecommendProviderButton(
                     text = stringResource(R.string.setting_provider_page_recommend),
                     style = MaterialTheme.typography.titleLarge,
                 )
-                Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
-                    RECOMMENDED_PROVIDERS.fastForEachIndexed { index, provider ->
-                        RecommendProviderItem(
-                            provider = provider,
-                            added = provider.id in addedIds,
-                            shape = cardGroupItemShape(index, RECOMMENDED_PROVIDERS.size),
-                            onAdd = {
-                                onAdd(provider)
-                                toaster.show(
-                                    importSuccessMessage,
-                                    type = ToastType.Success
-                                )
+                TextField(
+                    value = directoryQuery,
+                    onValueChange = { directoryQuery = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text(stringResource(R.string.setting_provider_page_search_providers)) },
+                    leadingIcon = {
+                        Icon(HugeIcons.Search01, contentDescription = null)
+                    },
+                    trailingIcon = {
+                        if (directoryQuery.isNotEmpty()) {
+                            IconButton(onClick = { directoryQuery = "" }) {
+                                Icon(HugeIcons.Cancel01, contentDescription = "Clear")
                             }
-                        )
-                    }
-                }
-
-                Text(
-                    text = stringResource(R.string.setting_provider_page_all_providers),
-                    style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.padding(top = 8.dp)
+                        }
+                    },
+                    singleLine = true,
+                    shape = CircleShape,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceBright,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceBright,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                    ),
                 )
-                if (presets.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.setting_provider_page_directory_not_loaded),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    TextField(
-                        value = directoryQuery,
-                        onValueChange = { directoryQuery = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text(stringResource(R.string.setting_provider_page_search_providers)) },
-                        leadingIcon = {
-                            Icon(HugeIcons.Search01, contentDescription = null)
-                        },
-                        trailingIcon = {
-                            if (directoryQuery.isNotEmpty()) {
-                                IconButton(onClick = { directoryQuery = "" }) {
-                                    Icon(HugeIcons.Cancel01, contentDescription = "Clear")
+                // 搜索时只看过滤结果, 没搜索时推荐卡片和目录一起滚动, 一滑到底
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+                ) {
+                    if (directoryQuery.isBlank()) {
+                        item(key = "recommended") {
+                            Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+                                RECOMMENDED_PROVIDERS.fastForEachIndexed { index, provider ->
+                                    RecommendProviderItem(
+                                        provider = provider,
+                                        added = provider.id in addedIds,
+                                        shape = cardGroupItemShape(index, RECOMMENDED_PROVIDERS.size),
+                                        onAdd = {
+                                            onAdd(provider)
+                                            toaster.show(
+                                                importSuccessMessage,
+                                                type = ToastType.Success
+                                            )
+                                        }
+                                    )
                                 }
                             }
-                        },
-                        singleLine = true,
-                        shape = CircleShape,
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceBright,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceBright,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                        ),
-                    )
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
-                    ) {
+                        }
+                        item(key = "directory_header") {
+                            Text(
+                                text = stringResource(R.string.setting_provider_page_all_providers),
+                                style = MaterialTheme.typography.titleLarge,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+                    }
+                    if (presets.isEmpty()) {
+                        item(key = "directory_empty") {
+                            Text(
+                                text = stringResource(R.string.setting_provider_page_directory_not_loaded),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
                         items(filteredPresets, key = { it.id }) { preset ->
                             DirectoryProviderItem(
                                 preset = preset,
@@ -578,9 +587,8 @@ private fun ImportProviderButton(
         )
     }
 
-    val pickImageLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
+    // 直接拉起系统相册选二维码图片，不走文档管理器
+    val pickQrImage = rememberGalleryMediaPicker { uri ->
         uri?.let {
             handleImageQRCode(it, onAdd, toaster, context)
         }
@@ -650,11 +658,7 @@ private fun ImportProviderButton(
                         OutlinedButton(
                             onClick = {
                                 showImportDialog = false
-                                pickImageLauncher.launch(
-                                    androidx.activity.result.PickVisualMediaRequest(
-                                        ActivityResultContracts.PickVisualMedia.ImageOnly
-                                    )
-                                )
+                                pickQrImage()
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -751,14 +755,17 @@ private fun handleImageQRCode(
 }
 
 
-// 新建时只选类型，其余配置到详情页里填；删除过内置提供商时末尾提供恢复入口
+// 新建时顶部选类型，其余配置到详情页里填；下面直接列出全部供应商，一键添加；删除过内置提供商时末尾提供恢复入口
 @Composable
 private fun AddButton(
     showRestore: Boolean,
+    addedProviders: List<ProviderSetting>,
     onRestore: () -> Unit,
     onAdd: (ProviderSetting) -> Unit,
 ) {
     var showSheet by remember { mutableStateOf(false) }
+    val toaster = LocalToaster.current
+    val context = LocalContext.current
     val templates = remember {
         listOf(
             ProviderSetting.OpenAI(),
@@ -768,6 +775,8 @@ private fun AddButton(
             ProviderSetting.Grok(),
         )
     }
+    val catalogVersion by ModelRegistry.catalogVersion.collectAsStateWithLifecycle()
+    val presets = remember(catalogVersion) { usableProviderPresets() }
 
     IconButton(
         onClick = { showSheet = true }
@@ -786,6 +795,7 @@ private fun AddButton(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .fillMaxHeight(0.85f)
                     .padding(horizontal = 16.dp)
                     .padding(bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -793,62 +803,101 @@ private fun AddButton(
                 Text(
                     text = stringResource(R.string.setting_provider_page_add_provider),
                     style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.padding(bottom = 4.dp)
                 )
-                Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
-                    templates.fastForEachIndexed { index, template ->
-                        Surface(
-                            onClick = {
-                                showSheet = false
-                                onAdd(template.copyProvider(Uuid.random()))
-                            },
-                            shape = cardGroupItemShape(index, templates.size),
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                val typeName = template.typeName()
-                                AutoAIIcon(
-                                    name = typeName,
-                                    modifier = Modifier.size(40.dp)
-                                )
-                                Text(
-                                    text = typeName,
-                                    style = MaterialTheme.typography.titleMediumEmphasized,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Icon(HugeIcons.ArrowRight01, contentDescription = null)
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+                ) {
+                    item(key = "templates") {
+                        Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+                            templates.fastForEachIndexed { index, template ->
+                                Surface(
+                                    onClick = {
+                                        showSheet = false
+                                        onAdd(template.copyProvider(Uuid.random()))
+                                    },
+                                    shape = cardGroupItemShape(index, templates.size),
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        val typeName = template.typeName()
+                                        AutoAIIcon(
+                                            name = typeName,
+                                            modifier = Modifier.size(40.dp)
+                                        )
+                                        Text(
+                                            text = typeName,
+                                            style = MaterialTheme.typography.titleMediumEmphasized,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        Icon(HugeIcons.ArrowRight01, contentDescription = null)
+                                    }
+                                }
+                            }
+
+                            if (showRestore) {
+                                Surface(
+                                    onClick = {
+                                        showSheet = false
+                                        onRestore()
+                                    },
+                                    shape = cardGroupItemShape(0, 1),
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(HugeIcons.Undo, contentDescription = null)
+                                        Text(
+                                            text = stringResource(R.string.setting_provider_page_restore_built_in),
+                                            style = MaterialTheme.typography.titleMediumEmphasized,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
-                }
-
-                if (showRestore) {
-                    Surface(
-                        onClick = {
-                            showSheet = false
-                            onRestore()
-                        },
-                        shape = cardGroupItemShape(0, 1),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(HugeIcons.Undo, contentDescription = null)
+                    item(key = "directory_header") {
+                        Text(
+                            text = stringResource(R.string.setting_provider_page_all_providers),
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                    if (presets.isEmpty()) {
+                        item(key = "directory_empty") {
                             Text(
-                                text = stringResource(R.string.setting_provider_page_restore_built_in),
-                                style = MaterialTheme.typography.titleMediumEmphasized,
-                                modifier = Modifier.weight(1f),
+                                text = stringResource(R.string.setting_provider_page_directory_not_loaded),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        items(presets, key = { it.id }) { preset ->
+                            DirectoryProviderItem(
+                                preset = preset,
+                                added = preset.isAdded(addedProviders),
+                                onAdd = {
+                                    onAdd(createProviderFromPreset(preset))
+                                    showSheet = false
+                                    toaster.show(
+                                        context.getString(R.string.setting_provider_page_import_success),
+                                        type = ToastType.Success
+                                    )
+                                }
                             )
                         }
                     }

@@ -1,8 +1,5 @@
 package me.rerere.rikkahub.ui.pages.mediacreation
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -126,6 +123,8 @@ import me.rerere.ui.components.FormItem
 import me.rerere.ui.components.Tooltip
 import me.rerere.ui.sketch.SketchDialog
 import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
+import me.rerere.rikkahub.ui.components.ui.rememberGalleryMediaPicker
+import me.rerere.rikkahub.ui.components.ui.rememberMultipleGalleryMediaPicker
 import me.rerere.rikkahub.ui.components.ui.Tag
 import me.rerere.rikkahub.ui.pages.setting.components.label
 import me.rerere.rikkahub.ui.pages.setting.components.typeName
@@ -159,15 +158,14 @@ internal fun MediaCreationComposer(
 
     // 非空时显示画板
     var sketching by remember { mutableStateOf<SketchRequest?>(null) }
-    val imagesPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia(MAX_PICKED_IMAGES)
-    ) { uris ->
+    // 直接拉起系统相册选素材，不走文档管理器
+    val imagesPicker = rememberMultipleGalleryMediaPicker(maxItems = MAX_PICKED_IMAGES) { uris ->
         vm.importAssets(uris, MediaCreationAssetType.IMAGE, importRole)
     }
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+    val imagePicker = rememberGalleryMediaPicker { uri ->
         vm.importAssets(listOfNotNull(uri), MediaCreationAssetType.IMAGE, importRole)
     }
-    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+    val videoPicker = rememberGalleryMediaPicker(video = true) { uri ->
         vm.importAssets(listOfNotNull(uri), MediaCreationAssetType.VIDEO, ImageRole.REFERENCE)
     }
 
@@ -341,13 +339,12 @@ internal fun MediaCreationComposer(
             onPickImages = {
                 pickingRole = null
                 importRole = role
-                val request = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                 // 首帧和尾帧各只有一张
-                if (role == ImageRole.REFERENCE) imagesPicker.launch(request) else imagePicker.launch(request)
+                if (role == ImageRole.REFERENCE) imagesPicker() else imagePicker()
             },
             onPickVideo = {
                 pickingRole = null
-                videoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+                videoPicker()
             },
             onSketch = {
                 pickingRole = null

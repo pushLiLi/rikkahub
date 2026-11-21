@@ -45,16 +45,17 @@ class ModelsDevUpdater(
         }
     }
 
-    /** 返回是否用上了下载的缓存 */
+    /** 返回是否用上了下载的缓存；缺供应商目录字段的旧格式缓存视为损坏，直接删掉 */
     private fun loadLocal(): Boolean {
         if (dataFile.exists()) {
             val cached = runCatching { dataFile.inputStream().use { ModelsDevCatalog.decode(it) } }
                 .onFailure { Log.w(TAG, "cached catalog is broken", it) }
                 .getOrNull()
-            if (cached != null) {
+            if (cached != null && cached.hasUsableDirectory()) {
                 ModelRegistry.installCatalog(cached)
                 return true
             }
+            Log.w(TAG, "cached catalog has no provider directory, rebuilding")
             dataFile.delete()
         }
         runCatching { context.assets.open(ASSET_NAME).use { ModelsDevCatalog.decode(it) } }
@@ -77,6 +78,8 @@ class ModelsDevUpdater(
             check(response.isSuccessful) { "models.dev responded ${response.code}" }
             val catalog = response.body.byteStream().use { ModelsDevCatalog.decode(it) }
             check(catalog.size >= MIN_CATALOG_SIZE) { "catalog too small: ${catalog.size}" }
+            // 上游结构变化导致供应商目录字段缺失时拒绝写入，保留本地可用的旧数据
+            check(catalog.hasUsableDirectory()) { "provider directory missing from catalog" }
 
             dir.mkdirs()
             val tmp = File(dir, "api.json.tmp")

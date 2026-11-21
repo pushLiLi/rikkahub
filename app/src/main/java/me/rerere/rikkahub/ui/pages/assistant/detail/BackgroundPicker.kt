@@ -1,8 +1,6 @@
 package me.rerere.rikkahub.ui.pages.assistant.detail
 
 import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,6 +33,7 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Image02
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.files.FilesManager
+import me.rerere.rikkahub.ui.components.ui.rememberGalleryMediaPicker
 import org.koin.compose.koinInject
 
 @Composable
@@ -49,9 +48,8 @@ fun BackgroundPicker(
     var showUrlInput by remember { mutableStateOf(false) }
     var urlInput by remember { mutableStateOf("") }
 
-    val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
+    // 直接拉起系统相册选背景，不走文档管理器
+    val pickBackgroundImage = rememberGalleryMediaPicker { uri: Uri? ->
         uri?.let {
             val localUris = filesManager.createChatFilesByContents(listOf(it))
             localUris.firstOrNull()?.let { localUri ->
@@ -127,7 +125,7 @@ fun BackgroundPicker(
                     Button(
                         onClick = {
                             showPickOption = false
-                            imagePickerLauncher.launch("image/*")
+                            pickBackgroundImage()
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {

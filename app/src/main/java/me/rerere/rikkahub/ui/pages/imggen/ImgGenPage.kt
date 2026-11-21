@@ -1,8 +1,6 @@
 package me.rerere.rikkahub.ui.pages.imggen
 
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
@@ -107,6 +105,7 @@ import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.ui.components.ai.ModelSelector
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.ImagePreviewDialog
+import me.rerere.rikkahub.ui.components.ui.rememberMultipleGalleryMediaPicker
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.utils.ImageUtils
@@ -363,9 +362,9 @@ private fun InputBar(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val imagePickerLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selectedUris ->
-            if (selectedUris.isNotEmpty()) {
+    // 直接拉起系统相册选参考图，不走文档管理器
+    val pickReferenceImages = rememberMultipleGalleryMediaPicker { selectedUris ->
+        if (selectedUris.isNotEmpty()) {
                 scope.launch {
                     val paths = selectedUris.mapNotNull { uri ->
                         withContext(Dispatchers.IO) {
@@ -435,7 +434,7 @@ private fun InputBar(
             }
 
             IconButton(
-                onClick = { imagePickerLauncher.launch("image/*") }
+                onClick = { pickReferenceImages() }
             ) {
                 Icon(
                     imageVector = HugeIcons.Add01,

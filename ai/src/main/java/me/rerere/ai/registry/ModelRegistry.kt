@@ -1,5 +1,7 @@
 package me.rerere.ai.registry
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.ModelAbility
 
@@ -726,9 +728,15 @@ object ModelRegistry {
     @Volatile
     private var catalog: ModelsDevCatalog? = null
 
+    // catalog 是普通字段, Compose 感知不到它被后台线程换掉; 每次 install 递增版本号,
+    // UI 订阅它即可在目录装好/刷新后重组
+    private val _catalogVersion = MutableStateFlow(0)
+    val catalogVersion: StateFlow<Int> = _catalogVersion
+
     /** 安装 models.dev 数据：查得到的模型以它为准，查不到的再走上面的 token 规则 */
     fun installCatalog(catalog: ModelsDevCatalog?) {
         this.catalog = catalog
+        _catalogVersion.value += 1
     }
 
     /** models.dev 供应商预设目录，目录未安装时为空列表 */
